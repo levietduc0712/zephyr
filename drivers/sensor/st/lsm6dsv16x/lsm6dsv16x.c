@@ -47,7 +47,7 @@ static const float lsm6dsv16x_odr_map[3][13] = {
 			 3200.0f, 6400.0f},
 		};
 
-static int lsm6dsv16x_freq_to_odr_val(const struct device *dev, uint16_t freq)
+static int lsm6dsv16x_freq_to_odr_val(const struct device *dev, float freq)
 {
 	const struct lsm6dsv16x_config *cfg = dev->config;
 	stmdev_ctx_t *ctx = (stmdev_ctx_t *)&cfg->ctx;
@@ -56,6 +56,10 @@ static int lsm6dsv16x_freq_to_odr_val(const struct device *dev, uint16_t freq)
 	size_t i;
 
 	if (lsm6dsv16x_xl_data_rate_get(ctx, &odr) < 0) {
+		return -EINVAL;
+	}
+
+	if (freq < 0.0f) {
 		return -EINVAL;
 	}
 
@@ -70,6 +74,58 @@ static int lsm6dsv16x_freq_to_odr_val(const struct device *dev, uint16_t freq)
 
 	return -EINVAL;
 }
+
+#ifdef CONFIG_LSM6DSV16X_QVAR
+static bool lsm6dsv16x_sensor_value_is_zero(const struct sensor_value *val)
+{
+	return val->val1 == 0 && val->val2 == 0;
+}
+
+static int lsm6dsv16x_qvar_zin_from_mohm(uint16_t impedance,
+					 lsm6dsv16x_ah_qvar_zin_t *zin)
+{
+	switch (impedance) {
+	case 2400:
+		*zin = LSM6DSV16X_2400MOhm;
+		return 0;
+	case 730:
+		*zin = LSM6DSV16X_730MOhm;
+		return 0;
+	case 300:
+		*zin = LSM6DSV16X_300MOhm;
+		return 0;
+	case 255:
+		*zin = LSM6DSV16X_255MOhm;
+		return 0;
+	default:
+		return -EINVAL;
+	}
+}
+
+static int lsm6dsv16x_qvar_filter_config(const stmdev_ctx_t *ctx)
+{
+	lsm6dsv16x_filt_settling_mask_t filt_settling_mask = {
+		.drdy = 1,
+		.ois_drdy = 0,
+		.irq_xl = 1,
+		.irq_g = 1,
+	};
+
+	if (lsm6dsv16x_filt_settling_mask_set(ctx, filt_settling_mask) < 0) {
+		return -EIO;
+	}
+
+	if (lsm6dsv16x_filt_xl_lp2_set(ctx, PROPERTY_ENABLE) < 0) {
+		return -EIO;
+	}
+
+	if (lsm6dsv16x_filt_xl_lp2_bandwidth_set(ctx, LSM6DSV16X_XL_STRONG) < 0) {
+		return -EIO;
+	}
+
+	return 0;
+}
+#endif
 
 #define ACCEL_FS_MAP_SIZE 4
 #if DT_NUM_INST_STATUS_OKAY(DT_DRV_COMPAT_LSM6DSV16X)
@@ -198,11 +254,11 @@ int lsm6dsv16x_gyro_set_odr_raw(const struct device *dev, uint8_t odr)
 	return 0;
 }
 
-static int lsm6dsv16x_accel_odr_set(const struct device *dev, uint16_t freq)
+static int lsm6dsv16x_accel_odr_set(const struct device *dev, const struct sensor_value *freq)
 {
 	int odr;
 
-	odr = lsm6dsv16x_freq_to_odr_val(dev, freq);
+	odr = lsm6dsv16x_freq_to_odr_val(dev, sensor_value_to_float(freq));
 	if (odr < 0) {
 		return odr;
 	}
@@ -521,12 +577,32 @@ static int lsm6dsv16x_accel_config(const struct device *dev,
 	case SENSOR_ATTR_FULL_SCALE:
 		return lsm6dsv16x_accel_range_set(dev, sensor_ms2_to_g(val));
 	case SENSOR_ATTR_SAMPLING_FREQUENCY:
-		return lsm6dsv16x_accel_odr_set(dev, val->val1);
+#ifdef CONFIG_LSM6DSV16X_QVAR
+		if (cfg->qvar_enabled && lsm6dsv16x_sensor_value_is_zero(val)) {
+			LOG_ERR("QVAR requires accelerometer sampling frequency to be non-zero");
+			return -ENOTSUP;
+		}
+#endif
+		return lsm6dsv16x_accel_odr_set(dev, val);
 	case SENSOR_ATTR_SLOPE_TH:
 		return lsm6dsv16x_accel_wake_threshold_set(dev, val);
 	case SENSOR_ATTR_SLOPE_DUR:
 		return lsm6dsv16x_accel_wake_duration_set(dev, val);
 	case SENSOR_ATTR_CONFIGURATION:
+#ifdef CONFIG_LSM6DSV16X_QVAR
+		if (cfg->qvar_enabled) {
+			switch (val->val1) {
+			case 1: /* High Accuracy */
+			case 3: /* ODR triggered */
+			case 4: /* Low Power 2 */
+			case 5: /* Low Power 4 */
+			case 6: /* Low Power 8 */
+				return -ENOTSUP;
+			default:
+				break;
+			}
+		}
+#endif
 		switch (val->val1) {
 		case 0: /* High Performance */
 			mode = LSM6DSV16X_XL_HIGH_PERFORMANCE_MD;
@@ -924,6 +1000,28 @@ static int lsm6dsv16x_sample_fetch_temp(const struct device *dev)
 }
 #endif
 
+#ifdef CONFIG_LSM6DSV16X_QVAR
+static int lsm6dsv16x_sample_fetch_qvar(const struct device *dev)
+{
+	const struct lsm6dsv16x_config *cfg = dev->config;
+	stmdev_ctx_t *ctx = (stmdev_ctx_t *)&cfg->ctx;
+	struct lsm6dsv16x_data *data = dev->data;
+
+	if (!cfg->qvar_enabled) {
+		return -ENOTSUP;
+	}
+
+	if (lsm6dsv16x_ah_qvar_raw_get(ctx, &data->qvar_sample) < 0) {
+		LOG_DBG("Failed to read QVAR sample");
+		return -EIO;
+	}
+
+	LOG_DBG("QVAR raw sample %d", data->qvar_sample);
+
+	return 0;
+}
+#endif
+
 #if defined(CONFIG_LSM6DSV16X_SENSORHUB)
 static int lsm6dsv16x_sample_fetch_shub(const struct device *dev)
 {
@@ -942,6 +1040,9 @@ static int lsm6dsv16x_sample_fetch(const struct device *dev,
 #if defined(CONFIG_LSM6DSV16X_SENSORHUB)
 	struct lsm6dsv16x_data *data = dev->data;
 #endif /* CONFIG_LSM6DSV16X_SENSORHUB */
+#ifdef CONFIG_LSM6DSV16X_QVAR
+	const struct lsm6dsv16x_config *cfg = dev->config;
+#endif
 	int ret = 0;
 
 	switch (chan) {
@@ -954,6 +1055,11 @@ static int lsm6dsv16x_sample_fetch(const struct device *dev,
 #if defined(CONFIG_LSM6DSV16X_ENABLE_TEMP)
 	case SENSOR_CHAN_DIE_TEMP:
 		ret = lsm6dsv16x_sample_fetch_temp(dev);
+		break;
+#endif
+#ifdef CONFIG_LSM6DSV16X_QVAR
+	case SENSOR_CHAN_LSM6DSVXXX_QVAR:
+		ret = lsm6dsv16x_sample_fetch_qvar(dev);
 		break;
 #endif
 	case SENSOR_CHAN_ALL:
@@ -969,6 +1075,14 @@ static int lsm6dsv16x_sample_fetch(const struct device *dev,
 		ret = lsm6dsv16x_sample_fetch_temp(dev);
 		if (ret != 0) {
 			break;
+		}
+#endif
+#ifdef CONFIG_LSM6DSV16X_QVAR
+		if (cfg->qvar_enabled) {
+			ret = lsm6dsv16x_sample_fetch_qvar(dev);
+			if (ret != 0) {
+				break;
+			}
 		}
 #endif
 #if defined(CONFIG_LSM6DSV16X_SENSORHUB)
@@ -1090,6 +1204,16 @@ static void lsm6dsv16x_gyro_channel_get_temp(struct sensor_value *val,
 
 	val->val1 = (int32_t)(micro_c / 1000000) + 25;
 	val->val2 = (int32_t)(micro_c % 1000000);
+}
+#endif
+
+#ifdef CONFIG_LSM6DSV16X_QVAR
+static int lsm6dsv16x_qvar_channel_get(struct sensor_value *val,
+				       struct lsm6dsv16x_data *data)
+{
+	int64_t micro_mv = ((int64_t)data->qvar_sample * 1000000LL) / 78LL;
+
+	return sensor_value_from_micro(val, micro_mv);
 }
 #endif
 
@@ -1222,6 +1346,9 @@ static int lsm6dsv16x_channel_get(const struct device *dev,
 			       enum sensor_channel chan,
 			       struct sensor_value *val)
 {
+#ifdef CONFIG_LSM6DSV16X_QVAR
+	const struct lsm6dsv16x_config *cfg = dev->config;
+#endif
 	struct lsm6dsv16x_data *data = dev->data;
 
 	switch (chan) {
@@ -1241,6 +1368,14 @@ static int lsm6dsv16x_channel_get(const struct device *dev,
 	case SENSOR_CHAN_DIE_TEMP:
 		lsm6dsv16x_gyro_channel_get_temp(val, data);
 		break;
+#endif
+#ifdef CONFIG_LSM6DSV16X_QVAR
+	case SENSOR_CHAN_LSM6DSVXXX_QVAR:
+		if (!cfg->qvar_enabled) {
+			return -ENOTSUP;
+		}
+
+		return lsm6dsv16x_qvar_channel_get(val, data);
 #endif
 #if defined(CONFIG_LSM6DSV16X_SENSORHUB)
 	case SENSOR_CHAN_MAGN_X:
@@ -1302,6 +1437,104 @@ static DEVICE_API(sensor, lsm6dsv16x_driver_api) = {
 	.submit = lsm6dsv16x_submit,
 #endif
 };
+
+#ifdef CONFIG_LSM6DSV16X_QVAR
+#if defined(CONFIG_PM_DEVICE)
+static int lsm6dsv16x_qvar_disable(const struct device *dev)
+{
+	const struct lsm6dsv16x_config *cfg = dev->config;
+	stmdev_ctx_t *ctx = (stmdev_ctx_t *)&cfg->ctx;
+	lsm6dsv16x_ah_qvar_mode_t mode = {.ah_qvar_en = PROPERTY_DISABLE};
+
+	if (!cfg->qvar_enabled) {
+		return 0;
+	}
+
+	if (lsm6dsv16x_ah_qvar_mode_set(ctx, mode) < 0) {
+		LOG_DBG("failed to disable QVAR");
+		return -EIO;
+	}
+
+	if (lsm6dsv16x_ah_qvar_mode_get(ctx, &mode) < 0) {
+		LOG_DBG("failed to read QVAR mode");
+		return -EIO;
+	}
+
+	if (mode.ah_qvar_en != PROPERTY_DISABLE) {
+		LOG_DBG("QVAR disable readback failed");
+		return -EIO;
+	}
+
+	return 0;
+}
+#endif /* CONFIG_PM_DEVICE */
+
+static int lsm6dsv16x_qvar_enable(const struct device *dev)
+{
+	const struct lsm6dsv16x_config *cfg = dev->config;
+	stmdev_ctx_t *ctx = (stmdev_ctx_t *)&cfg->ctx;
+	lsm6dsv16x_ah_qvar_mode_t mode = {.ah_qvar_en = PROPERTY_ENABLE};
+	lsm6dsv16x_ah_qvar_zin_t zin;
+	lsm6dsv16x_ah_qvar_zin_t zin_cfg;
+
+	if (!cfg->qvar_enabled) {
+		return 0;
+	}
+
+	if (lsm6dsv16x_qvar_zin_from_mohm(cfg->qvar_input_impedance, &zin_cfg) < 0) {
+		LOG_ERR("unsupported QVAR input impedance %u MOhm",
+			cfg->qvar_input_impedance);
+		return -EINVAL;
+	}
+
+	if (lsm6dsv16x_xl_data_rate_set(ctx, LSM6DSV16X_ODR_OFF) < 0) {
+		LOG_DBG("failed to power down accelerometer before QVAR enable");
+		return -EIO;
+	}
+
+	if (lsm6dsv16x_gy_data_rate_set(ctx, LSM6DSV16X_ODR_OFF) < 0) {
+		LOG_DBG("failed to power down gyroscope before QVAR enable");
+		return -EIO;
+	}
+
+	if (lsm6dsv16x_qvar_filter_config(ctx) < 0) {
+		LOG_DBG("failed to configure QVAR filtering");
+		return -EIO;
+	}
+
+	if (lsm6dsv16x_ah_qvar_zin_set(ctx, zin_cfg) < 0) {
+		LOG_DBG("failed to configure QVAR input impedance");
+		return -EIO;
+	}
+
+	if (lsm6dsv16x_ah_qvar_zin_get(ctx, &zin) < 0) {
+		LOG_DBG("failed to read QVAR input impedance");
+		return -EIO;
+	}
+
+	if (zin != zin_cfg) {
+		LOG_DBG("unexpected QVAR input impedance %d", zin);
+		return -EIO;
+	}
+
+	if (lsm6dsv16x_ah_qvar_mode_set(ctx, mode) < 0) {
+		LOG_DBG("failed to enable QVAR");
+		return -EIO;
+	}
+
+	if (lsm6dsv16x_ah_qvar_mode_get(ctx, &mode) < 0) {
+		LOG_DBG("failed to read QVAR mode");
+		return -EIO;
+	}
+
+	if (mode.ah_qvar_en != PROPERTY_ENABLE) {
+		LOG_DBG("QVAR enable readback failed");
+		return -EIO;
+	}
+
+	return 0;
+}
+#endif
 
 static int lsm6dsv16x_init_chip(const struct device *dev)
 {
@@ -1377,6 +1610,13 @@ static int lsm6dsv16x_init_chip(const struct device *dev)
 	}
 #endif
 
+#ifdef CONFIG_LSM6DSV16X_QVAR
+	if (lsm6dsv16x_qvar_enable(dev) < 0) {
+		LOG_ERR("failed to configure QVAR");
+		return -EIO;
+	}
+#endif
+
 	fs = cfg->accel_range;
 	LOG_DBG("accel range is %d", fs);
 	if (lsm6dsv16x_accel_set_fs_raw(dev, fs) < 0) {
@@ -1434,13 +1674,20 @@ static int lsm6dsv16x_init_chip(const struct device *dev)
 
 static int lsm6dsv16x_init(const struct device *dev)
 {
-#ifdef CONFIG_LSM6DSV16X_TRIGGER
+#if defined(CONFIG_LSM6DSV16X_TRIGGER) || defined(CONFIG_LSM6DSV16X_QVAR)
 	const struct lsm6dsv16x_config *cfg = dev->config;
 #endif
 	struct lsm6dsv16x_data *data = dev->data;
 
 	LOG_INF("Initialize device %s", dev->name);
 	data->dev = dev;
+
+#ifdef CONFIG_LSM6DSV16X_QVAR
+	if (cfg->qvar_enabled && cfg->accel_odr == LSM6DSVXXX_DT_ODR_OFF) {
+		LOG_ERR("QVAR requires accelerometer to be enabled");
+		return -EINVAL;
+	}
+#endif
 
 	if (lsm6dsv16x_init_chip(dev) < 0) {
 		LOG_DBG("failed to initialize chip");
@@ -1479,6 +1726,12 @@ static int lsm6dsv16x_pm_action(const struct device *dev, enum pm_device_action 
 
 	switch (action) {
 	case PM_DEVICE_ACTION_RESUME:
+#ifdef CONFIG_LSM6DSV16X_QVAR
+		if (lsm6dsv16x_qvar_enable(dev) < 0) {
+			LOG_ERR("failed to restore QVAR");
+			return -EIO;
+		}
+#endif
 		if (lsm6dsv16x_xl_data_rate_set(ctx, data->accel_freq) < 0) {
 			LOG_ERR("failed to set accelerometer odr %d", (int)data->accel_freq);
 			ret = -EIO;
@@ -1489,6 +1742,12 @@ static int lsm6dsv16x_pm_action(const struct device *dev, enum pm_device_action 
 		}
 		break;
 	case PM_DEVICE_ACTION_SUSPEND:
+#ifdef CONFIG_LSM6DSV16X_QVAR
+		if (lsm6dsv16x_qvar_disable(dev) < 0) {
+			LOG_ERR("failed to disable QVAR");
+			return -EIO;
+		}
+#endif
 		if (lsm6dsv16x_xl_data_rate_set(ctx, LSM6DSVXXX_DT_ODR_OFF) < 0) {
 			LOG_ERR("failed to disable accelerometer");
 			ret = -EIO;
@@ -1546,6 +1805,10 @@ static int lsm6dsv16x_pm_action(const struct device *dev, enum pm_device_action 
 	.accel_fs_map = prefix##_accel_fs_map,					\
 	.gyro_odr = DT_INST_PROP(inst, gyro_odr),				\
 	.gyro_range = DT_INST_PROP(inst, gyro_range),				\
+	IF_ENABLED(CONFIG_LSM6DSV16X_QVAR,					\
+		   (.qvar_enabled = DT_INST_PROP_OR(inst, qvar_enable, false),	\
+		    .qvar_input_impedance =					\
+			    DT_INST_PROP_OR(inst, qvar_input_impedance_mohm, 2400),)) \
 	IF_ENABLED(CONFIG_LSM6DSV16X_STREAM,					\
 		   (.fifo_wtm = DT_INST_PROP(inst, fifo_watermark),		\
 		    .accel_batch  = DT_INST_PROP(inst, accel_fifo_batch_rate),	\

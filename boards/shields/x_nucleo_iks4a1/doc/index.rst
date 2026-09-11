@@ -124,11 +124,11 @@ The board configuration is:
  - J4: 9-10 (DIL_SDx = SENS_SDA)
  - J5: 9-10 (DIL_SDx = SENS_SDA)
 
-Mode 5: LSM6DSO16IS as Qvar controller
-======================================
+Mode 5: LSM6DSV16X as Qvar controller
+=====================================
 
 In this configuration, it is possible to use the equipped Qvar swipe electrode
-(by plugging it on JP6 and JP7 connectors) through the LSM6DSO16IS.
+(by plugging it on JP6 and JP7 connectors) through the LSM6DSV16X.
 
 The board configuration is:
 
@@ -153,8 +153,7 @@ There are three predefined DT overlays in the board:
 Examples
 ********
 
-Three samples are provided as examples for ``x-nucleo-iks4a1`` shield, each one associated
-with one of the overlays described above:
+Four samples are provided as examples for ``x-nucleo-iks4a1`` shield:
 
 - ::zephyr:code-sample:`x-nucleo-iks4a1-std` application, to be used when the shield is configured
   in Standard Mode (Mode 1)
@@ -162,6 +161,9 @@ with one of the overlays described above:
   in SHUB1 Mode (Mode 3)
 - ::zephyr:code-sample:`x-nucleo-iks4a1-shub2` application, to be used when the shield is configured
   in SHUB2 Mode (Mode 2)
+- ::zephyr:code-sample:`x-nucleo-iks4a1-qvar` application in
+  :zephyr_file:`samples/shields/x_nucleo_iks4a1/qvar`, to be used for Mode 5 QVAR
+  charge-variation sensing through LSM6DSV16X
 
 See also :ref:`shields` for more details.
 

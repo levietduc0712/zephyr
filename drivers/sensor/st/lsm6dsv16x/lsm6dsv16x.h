@@ -79,6 +79,10 @@ struct lsm6dsv16x_config {
 	uint8_t gyro_odr;
 	uint8_t gyro_range;
 	uint8_t drdy_pulsed;
+#ifdef CONFIG_LSM6DSV16X_QVAR
+	bool qvar_enabled;
+	uint16_t qvar_input_impedance;
+#endif
 #ifdef CONFIG_LSM6DSV16X_STREAM
 	uint8_t fifo_wtm;
 	uint8_t accel_batch : 4;
@@ -143,6 +147,9 @@ struct lsm6dsv16x_data {
 	uint32_t gyro_gain;
 #if defined(CONFIG_LSM6DSV16X_ENABLE_TEMP)
 	int16_t temp_sample;
+#endif
+#ifdef CONFIG_LSM6DSV16X_QVAR
+	int16_t qvar_sample;
 #endif
 #if defined(CONFIG_LSM6DSV16X_SENSORHUB)
 	uint8_t ext_data[LSM6DSV16X_SHUB_MAX_NUM_TARGETS][6];

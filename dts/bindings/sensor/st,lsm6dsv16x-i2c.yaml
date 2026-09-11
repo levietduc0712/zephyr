@@ -8,3 +8,23 @@ description: |
 compatible: "st,lsm6dsv16x"
 
 include: ["i2c-device.yaml", "st,lsm6dsv16x-common.yaml"]
+
+properties:
+  qvar-enable:
+    type: boolean
+    description: |
+      Enable the QVAR charge-variation sensing path for this I2C device
+      instance.
+
+  qvar-input-impedance-mohm:
+    type: int
+    default: 2400
+    enum:
+      - 2400
+      - 730
+      - 300
+      - 255
+    description: |
+      Equivalent input impedance of the AH/QVAR buffers, in megaohms.
+      Lower values reduce sensitivity and help avoid saturation with direct
+      touch electrodes.

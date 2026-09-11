@@ -1,0 +1,14 @@
+/*
+ * Copyright (c) 2026 STMicroelectronics
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <zephyr/dt-bindings/sensor/lsm6dsvxxx.h>
+
+&lsm6dsv16x_6b_x_nucleo_iks4a1 {
+	accel-odr = <LSM6DSVXXX_DT_ODR_AT_120Hz>;
+	gyro-odr = <LSM6DSVXXX_DT_ODR_OFF>;
+	qvar-enable;
+	qvar-input-impedance-mohm = <255>;
+};

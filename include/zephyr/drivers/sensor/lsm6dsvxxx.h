@@ -34,6 +34,17 @@ enum sensor_attribute_lsm6dsvxxx {
 	SENSOR_ATTR_GET_SELF_TEST_RESULT = SENSOR_ATTR_PRIV_START,
 };
 
+/**
+ * @brief Custom sensor channels for LSM6DSVXXX
+ */
+enum sensor_channel_lsm6dsvxxx {
+	/**
+	 * AH/QVAR charge variation sensing output, converted to millivolts.
+	 * Supported by LSM6DSV16X and LSM6DSV32X when QVAR support is enabled.
+	 */
+	SENSOR_CHAN_LSM6DSVXXX_QVAR = SENSOR_CHAN_PRIV_START,
+};
+
 /** @brief Self-test result for the LSM6DSVXXX. */
 enum lsm6dsvxxx_self_test_result {
 	LSM6DSVXXX_ST_OK = 0,   /**< Self-test passed. */
