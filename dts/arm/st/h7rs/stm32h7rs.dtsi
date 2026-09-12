@@ -482,6 +482,26 @@
 			status = "disabled";
 		};
 
+		i3c1: i3c@40005400 {
+			compatible = "st,stm32-i3c";
+			reg = <0x40005400 0x400>;
+			interrupts = <89 0>, <90 0>;
+			interrupt-names = "event", "error";
+			dmas = <&gpdma1 0 106 (STM32_DMA_PERIPH_RX | STM32_DMA_PRIORITY_HIGH)>,
+			       <&gpdma1 1 107 (STM32_DMA_PERIPH_TX | STM32_DMA_PRIORITY_HIGH)>,
+			       <&gpdma1 2 108 (STM32_DMA_PERIPH_TX | STM32_DMA_32BITS |
+					       STM32_DMA_PRIORITY_HIGH)>,
+			       <&gpdma1 3 109 (STM32_DMA_PERIPH_RX | STM32_DMA_32BITS |
+					       STM32_DMA_PRIORITY_HIGH)>;
+			dma-names = "rx", "tx", "tc", "rs";
+			#address-cells = <3>;
+			#size-cells = <0>;
+			clocks = <&rcc STM32_CLOCK(APB1, 21)>;
+			resets = <&rctl STM32_RESET(APB1L, 21)>;
+			zephyr,pm-device-runtime-auto;
+			status = "disabled";
+		};
+
 		i2c2: i2c@40005800 {
 			compatible = "st,stm32-i2c-v2";
 			clock-frequency = <I2C_BITRATE_STANDARD>;
@@ -1182,7 +1202,7 @@
 				     <133 0>, <134 0>, <135 0>, <136 0>, <137 0>, <138 0>, <139 0>,
 				     <140 0>;
 			dma-channels = <16>;
-			dma-requests = <109>;
+			dma-requests = <110>;
 			status = "disabled";
 		};
 

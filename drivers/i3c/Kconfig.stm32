@@ -23,6 +23,7 @@ config I3C_STM32_COMBINED_INTERRUPT
 
 config I3C_STM32_DMA
 	bool "STM32 I3C DMA driver support"
+	select CACHE_MANAGEMENT if DCACHE
 	select DMA
 	help
 	  Enables support for I3C DMA mode on STM32 microcontrollers.

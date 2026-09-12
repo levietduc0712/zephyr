@@ -172,6 +172,19 @@
 	clock-frequency = <I2C_BITRATE_FAST>;
 };
 
+&i3c1 {
+	pinctrl-0 = <&i3c1_scl_pb8 &i3c1_sda_pb9>;
+	pinctrl-names = "default";
+	/* By default I2C is used */
+	status = "disabled";
+
+	clocks = <&rcc STM32_CLOCK(APB1, 21)>,
+		 <&rcc STM32_SRC_PCLK1 I2C1_I3C1_SEL(0)>;
+
+	i2c-scl-hz = <400000>;
+	i3c-scl-hz = <12500000>;
+};
+
 &fdcan1 {
 	pinctrl-0 = <&fdcan1_rx_pd0 &fdcan1_tx_pd1>;
 	pinctrl-names = "default";

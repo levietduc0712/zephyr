@@ -4,6 +4,7 @@ arch: arm
 toolchain:
   - zephyr
 supported:
+  - arduino_i3c
   - gpio
   - ptp_clock
   - uart
