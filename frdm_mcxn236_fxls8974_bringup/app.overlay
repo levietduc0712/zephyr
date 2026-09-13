@@ -1,0 +1,6 @@
+&flexcomm2_lpi2c2 {
+	fxls8974: accelerometer@18 {
+		compatible = "nxp,fxls8974";
+		reg = <0x18>;
+	};
+};
