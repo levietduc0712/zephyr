@@ -801,8 +801,6 @@ static int i3c_stm32_configure(const struct device *dev, enum i3c_config_type ty
 #ifdef CONFIG_I3C_TARGET
 	if (type == I3C_CONFIG_TARGET) {
 		struct i3c_config_target *targ_cfg = cfg;
-		const struct i3c_stm32_config *config = dev->config;
-		I3C_TypeDef *i3c = config->i3c;
 
 		if (!was_enabled) {
 			LL_I3C_SetMIPIInstanceID(i3c, (targ_cfg->pid >> 12U) & 0xFU);
