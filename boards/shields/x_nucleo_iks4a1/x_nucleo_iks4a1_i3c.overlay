@@ -16,7 +16,7 @@
 };
 
 &arduino_i3c {
-	lsm6dsv16x_6b_x_nucleo_iks4a1: lsm6dsv16x@00000002080070920b {
+	lsm6dsv16x_6b_x_nucleo_iks4a1: lsm6dsv16x@2080070920b {
 		compatible = "st,lsm6dsv16x";
 		reg = <0x00 0x208 0x70920b>;
 		accel-odr = <0x02>;
@@ -27,7 +27,7 @@
 		int-en-i3c;
 	};
 
-	lps22df_5d_x_nucleo_iks4a1: lps22df@000000020800b4900b {
+	lps22df_5d_x_nucleo_iks4a1: lps22df@20800b4900b {
 		compatible = "st,lps22df";
 		reg = <0x00 0x0208 0xb4900b>;
 	};
