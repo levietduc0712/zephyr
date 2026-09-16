@@ -24,19 +24,20 @@ config I3C_STM32_COMBINED_INTERRUPT
 
 config I3C_STM32_DMA
 	bool "STM32 I3C DMA driver support"
+	depends on I3C_CONTROLLER
 	select DMA
+	select CACHE_MANAGEMENT if DCACHE
 	help
 	  Enables support for I3C DMA mode on STM32 microcontrollers.
 
 config I3C_STM32_DMA_FIFO_HEAP_SIZE
-	int "Status FIFO and control FIFO heap"
+	int "DMA transfer buffer heap"
 	depends on I3C_STM32_DMA
 	default 2048
 	help
-	  Configures the heap size for dynamically allocating the regions for
-	  storing status FIFO and control FIFO words which will be used by the DMA.
-	  This value depends on the maximum number of messages that will be sent
-	  during a single transfer. 2KB guarantees enough heap size for sending 256
-	  messages on a single transfer.
+	  Size of the heap used for DMA control words, status words and byte-stream
+	  buffers. Allow eight bytes per message, the total read and write lengths,
+	  cache-line padding and allocator overhead. Transfers that exceed the
+	  available storage fail with ENOMEM.
 
 endif # I3C_STM32
