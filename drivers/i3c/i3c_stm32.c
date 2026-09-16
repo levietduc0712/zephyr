@@ -1197,12 +1197,15 @@ static int i3c_stm32_do_ccc(const struct device *dev, struct i3c_ccc_payload *pa
 		payload->targets.payloads[i].num_xfer = 0;
 	}
 
-	/* Start CCC transfer */
+	/* Queue the CCC header before an interrupt can append direct-target commands. */
+	unsigned int key = irq_lock();
+
 	i3c_stm32_xfer_arm(dev);
 	LL_I3C_ControllerHandleCCC(i3c, payload->ccc.id, payload->ccc.data_len,
 				   (i3c_ccc_is_payload_broadcast(payload)
 					    ? LL_I3C_GENERATE_STOP
 					    : LL_I3C_GENERATE_RESTART));
+	irq_unlock(key);
 
 	ret = i3c_stm32_xfer_wait(dev);
 	if (ret != 0) {
@@ -1230,6 +1233,8 @@ static int i3c_stm32_do_daa(const struct device *dev)
 	}
 	data->pid = 0;
 	data->daa_rx_rcv = 0;
+	unsigned int key = irq_lock();
+
 	i3c_stm32_xfer_arm(dev);
 
 	/* Disable TXFNF interrupt, the RXFNE interrupt will enable it once all PID bytes are
@@ -1239,6 +1244,7 @@ static int i3c_stm32_do_daa(const struct device *dev)
 
 	/* Start DAA */
 	LL_I3C_ControllerHandleCCC(i3c, I3C_CCC_ENTDAA, 0, LL_I3C_GENERATE_STOP);
+	irq_unlock(key);
 
 	ret = i3c_stm32_xfer_wait(dev);
 	if (ret != 0) {
