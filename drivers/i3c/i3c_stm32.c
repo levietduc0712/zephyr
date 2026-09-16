@@ -349,8 +349,8 @@ static int i3c_stm32_curr_msg_status_next(const struct device *dev)
 
 	if (i3c_stm32_curr_msg_is_i3c(dev)) {
 		curr_msg->i3c_msg_status_ptr++;
-		curr_msg->status_msg_idx++;
 	}
+	curr_msg->status_msg_idx++;
 
 	return 0;
 }
@@ -379,8 +379,6 @@ static int i3c_stm32_curr_msg_xfer_get_buf(const struct device *dev, uint8_t **b
 	return 0;
 }
 
-/* This method is only used in DMA mode */
-#ifdef CONFIG_I3C_STM32_DMA
 static bool i3c_stm32_curr_msg_xfer_is_read(const struct device *dev)
 {
 	struct i3c_stm32_data *data = dev->data;
@@ -397,7 +395,6 @@ static bool i3c_stm32_curr_msg_xfer_is_read(const struct device *dev)
 
 	return ((curr_msg->i2c_msg_ptr->flags & I2C_MSG_RW_MASK) == I2C_MSG_READ);
 }
-#endif /* CONFIG_I3C_STM32_DMA */
 
 static int i3c_stm32_curr_msg_xfer_next(const struct device *dev)
 {
@@ -996,7 +993,7 @@ static bool i3c_stm32_fill_tx_fifo(const struct device *dev, uint8_t *buf, size_
 		return 0;
 	}
 
-	while (LL_I3C_IsActiveFlag_TXFNF(i3c)) {
+	while (*offset < len && LL_I3C_IsActiveFlag_TXFNF(i3c)) {
 		if (LL_I3C_IsActiveFlag_TXLAST(i3c)) {
 			is_last = true;
 		}
@@ -1034,7 +1031,7 @@ static bool i3c_stm32_drain_rx_fifo(const struct device *dev, uint8_t *buf, uint
 		return 0;
 	}
 
-	while (LL_I3C_IsActiveFlag_RXFNE(i3c)) {
+	while (*offset < len && LL_I3C_IsActiveFlag_RXFNE(i3c)) {
 		if (LL_I3C_IsActiveFlag_RXLAST(i3c)) {
 			is_last = true;
 		}
@@ -1789,7 +1786,10 @@ static void i3c_stm32_event_isr_tx(const struct device *dev)
 		size_t *offset = NULL;
 		uint32_t len = 0;
 
-		i3c_stm32_curr_msg_xfer_get_buf(dev, &buf, &len, &offset);
+		if (i3c_stm32_curr_msg_xfer_get_buf(dev, &buf, &len, &offset) != 0 ||
+		    i3c_stm32_curr_msg_xfer_is_read(dev)) {
+			break;
+		}
 
 		if (i3c_stm32_fill_tx_fifo(dev, buf, len, offset)) {
 			i3c_stm32_curr_msg_xfer_next(dev);
@@ -1912,7 +1912,10 @@ static void i3c_stm32_event_isr_rx(const struct device *dev)
 		size_t *offset = NULL;
 		uint32_t len = 0;
 
-		i3c_stm32_curr_msg_xfer_get_buf(dev, &buf, &len, &offset);
+		if (i3c_stm32_curr_msg_xfer_get_buf(dev, &buf, &len, &offset) != 0 ||
+		    !i3c_stm32_curr_msg_xfer_is_read(dev)) {
+			break;
+		}
 		if (i3c_stm32_drain_rx_fifo(dev, buf, len, offset)) {
 			i3c_stm32_curr_msg_xfer_next(dev);
 		}
@@ -1968,6 +1971,9 @@ static void i3c_stm32_event_isr_cf(const struct device *dev)
 
 	switch (data->msg_state) {
 	case STM32_I3C_MSG: {
+		if (curr_msg->ctrl_msg_idx >= curr_msg->num_msgs) {
+			break;
+		}
 		LL_I3C_ControllerHandleMessage(
 			i3c, curr_msg->target_addr, i3c_stm32_curr_msg_control_get_len(dev),
 			i3c_stm32_curr_msg_control_get_dir(dev), curr_msg->msg_type,
