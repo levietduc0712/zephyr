@@ -492,6 +492,13 @@
 			#size-cells = <0>;
 			clocks = <&rcc STM32_CLOCK(APB1, 21)>;
 			resets = <&rctl STM32_RESET(APB1L, 21)>;
+			dmas = <&gpdma1 0 106 (STM32_DMA_PERIPH_RX | STM32_DMA_PRIORITY_HIGH)>,
+			       <&gpdma1 1 107 (STM32_DMA_PERIPH_TX | STM32_DMA_PRIORITY_HIGH)>,
+			       <&gpdma1 2 108 (STM32_DMA_PERIPH_TX | STM32_DMA_32BITS |
+					     STM32_DMA_PRIORITY_HIGH)>,
+			       <&gpdma1 3 109 (STM32_DMA_PERIPH_RX | STM32_DMA_32BITS |
+					     STM32_DMA_PRIORITY_HIGH)>;
+			dma-names = "rx", "tx", "tc", "rs";
 			zephyr,pm-device-runtime-auto;
 			status = "disabled";
 		};
@@ -1196,7 +1203,7 @@
 				     <133 0>, <134 0>, <135 0>, <136 0>, <137 0>, <138 0>, <139 0>,
 				     <140 0>;
 			dma-channels = <16>;
-			dma-requests = <109>;
+			dma-requests = <110>;
 			status = "disabled";
 		};
 
