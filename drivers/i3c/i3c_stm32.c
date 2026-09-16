@@ -1401,7 +1401,10 @@ static int i3c_stm32_i3c_transfer(const struct device *dev, struct i3c_device_de
 		if (msgs[i].buf == NULL) {
 			return -EINVAL;
 		}
-		if ((msgs[i].flags & I3C_MSG_HDR) && (msgs[i].hdr_mode != 0)) {
+		if (msgs[i].len > UINT16_MAX) {
+			return -EMSGSIZE;
+		}
+		if (msgs[i].flags & I3C_MSG_HDR) {
 			return -ENOTSUP;
 		}
 	}
@@ -1459,6 +1462,9 @@ static int i3c_stm32_i2c_transfer(const struct device *dev, struct i2c_msg *msgs
 	for (size_t i = 0; i < num_msgs; i++) {
 		if (msgs[i].buf == NULL) {
 			return -EINVAL;
+		}
+		if (msgs[i].len > UINT16_MAX) {
+			return -EMSGSIZE;
 		}
 		if (msgs[i].flags & I2C_MSG_ADDR_10_BITS) {
 			LOG_ERR("10-bit addressing mode is not supported");
