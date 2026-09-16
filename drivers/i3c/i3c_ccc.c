@@ -108,7 +108,7 @@ int i3c_ccc_do_rstact(const struct i3c_device_desc *target,
 			  uint8_t *data)
 {
 	struct i3c_ccc_payload ccc_payload;
-	struct i3c_ccc_target_payload ccc_tgt_payload;
+	struct i3c_ccc_target_payload ccc_tgt_payload = {0};
 	uint8_t def_byte;
 
 	__ASSERT_NO_MSG(target != NULL);
