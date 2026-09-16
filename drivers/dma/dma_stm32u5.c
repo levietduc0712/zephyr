@@ -781,20 +781,17 @@ static int dma_stm32_resume(const struct device *dev, uint32_t id)
 static int dma_stm32_stop(const struct device *dev, uint32_t id)
 {
 	const struct dma_stm32_config *config = dev->config;
-	struct dma_stm32_stream *stream = &config->streams[id];
+	struct dma_stm32_stream *stream;
 	DMA_TypeDef *dma = (DMA_TypeDef *)(config->base);
+	int ret;
 
 	if (id >= config->max_streams) {
 		return -EINVAL;
 	}
+	stream = &config->streams[id];
 
 	if (stream->hal_override) {
 		stream->busy = false;
-		return 0;
-	}
-
-	/* Repeated stop : return now if channel is already stopped */
-	if (!stm32_dma_is_enabled_stream(dma, id)) {
 		return 0;
 	}
 
@@ -804,7 +801,10 @@ static int dma_stm32_stop(const struct device *dev, uint32_t id)
 	LL_DMA_DisableIT_DTE(STM32_DMA_GET_CHANNEL(dma, id));
 
 	dma_stm32_clear_stream_irq(dev, id);
-	dma_stm32_disable_stream(dma, id);
+	ret = dma_stm32_disable_stream(dma, id);
+	if (ret != 0) {
+		return ret;
+	}
 
 	/* Finally, flag stream as free */
 	stream->busy = false;
