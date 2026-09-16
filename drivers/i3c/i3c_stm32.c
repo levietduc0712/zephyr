@@ -1750,6 +1750,12 @@ static int i3c_stm32_init(const struct device *dev)
 	int ret;
 
 	k_mutex_init(&data->bus_mutex);
+#ifdef CONFIG_SOC_SERIES_STM32H7RSX
+	if (!LL_FLASH_OptionBytes_IsI3CEnabled()) {
+		LOG_ERR("I3C1 is disabled by the I2C_NI3C option byte");
+		return -ENODEV;
+	}
+#endif
 	if (!device_is_ready(config->reset.dev)) {
 		return -ENODEV;
 	}

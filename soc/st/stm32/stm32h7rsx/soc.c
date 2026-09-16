@@ -20,6 +20,10 @@
 
 #include <cmsis_core.h>
 
+BUILD_ASSERT(!(DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(i2c1)) &&
+	       DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(i3c1))),
+	     "I2C1 and I3C1 share a peripheral and cannot both be enabled");
+
 #define PWR_NODE DT_INST(0, st_stm32h7rs_pwr)
 
 /* Helper to simplify following #if chain */
