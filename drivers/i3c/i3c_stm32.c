@@ -150,6 +150,8 @@ struct i3c_stm32_data {
 		*/
 	size_t ccc_target_idx;        /* Current target index, used for filling C-FIFO */
 	struct k_sem device_sync_sem; /* Sync between device communication messages */
+	bool xfer_active;
+	int xfer_result;
 	struct k_mutex bus_mutex;     /* Sync between transfers */
 	struct i3c_stm32_msg curr_msg;
 	uint8_t target_addr;    /* Current target xfer address */
@@ -737,6 +739,7 @@ static int i3c_stm32_configure(const struct device *dev, enum i3c_config_type ty
 	uint32_t timing1;
 	bool was_enabled;
 	int ret;
+	int pm_ret;
 
 	if (cfg == NULL) {
 		return -EINVAL;
@@ -760,10 +763,15 @@ static int i3c_stm32_configure(const struct device *dev, enum i3c_config_type ty
 		data->drv_data.ctrl_config.scl_od_min = ctrl_cfg->scl_od_min;
 	}
 
+	ret = pm_device_runtime_get(dev);
+	if (ret < 0) {
+		goto unlock;
+	}
+	pm_policy_state_lock_get(PM_STATE_SUSPEND_TO_IDLE, PM_ALL_SUBSTATES);
 	ret = i3c_stm32_activate(dev);
 	if (ret != 0) {
 		LOG_ERR("Clock and GPIO could not be initialized for the I3C module, err=%d", ret);
-		goto unlock;
+		goto put;
 	}
 
 	/* Timing registers are writable only while the peripheral is disabled. */
@@ -810,6 +818,12 @@ restore:
 	}
 	if (was_enabled) {
 		LL_I3C_Enable(i3c);
+	}
+put:
+	pm_policy_state_lock_put(PM_STATE_SUSPEND_TO_IDLE, PM_ALL_SUBSTATES);
+	pm_ret = pm_device_runtime_put(dev);
+	if (ret == 0) {
+		ret = pm_ret;
 	}
 unlock:
 	if (ret != 0) {
@@ -968,8 +982,91 @@ static void i3c_stm32_clear_err(const struct device *dev, bool is_i2c_xfer)
 
 	data->msg_state = STM32_I3C_MSG_IDLE;
 	data->sf_state = STM32_I3C_SF_IDLE;
+}
 
-	k_mutex_unlock(&data->bus_mutex);
+/* Transfer references and the bus mutex belong to the calling thread. */
+static int i3c_stm32_xfer_start(const struct device *dev, enum i3c_stm32_msg_state state)
+{
+	struct i3c_stm32_data *data = dev->data;
+	const struct i3c_stm32_config *config = dev->config;
+	I3C_TypeDef *i3c = config->i3c;
+	int ret = pm_device_runtime_get(dev);
+
+	if (ret < 0) {
+		return ret;
+	}
+	pm_policy_state_lock_get(PM_STATE_SUSPEND_TO_IDLE, PM_ALL_SUBSTATES);
+	k_sem_reset(&data->device_sync_sem);
+	LL_I3C_ClearFlag_FC(i3c);
+	LL_I3C_ClearFlag_ERR(i3c);
+	LL_I3C_ClearFlag_RXTGTEND(i3c);
+	data->xfer_result = 0;
+	data->xfer_active = true;
+	data->msg_state = state;
+	return 0;
+}
+
+/* Arm interrupts only after the caller has initialized all ISR-visible state. */
+static void i3c_stm32_xfer_arm(const struct device *dev)
+{
+	struct i3c_stm32_data *data = dev->data;
+	const struct i3c_stm32_config *config = dev->config;
+	I3C_TypeDef *i3c = config->i3c;
+
+	if (!IS_ENABLED(CONFIG_I3C_STM32_DMA) || data->msg_state != STM32_I3C_MSG) {
+		LL_I3C_EnableIT_TXFNF(i3c);
+		LL_I3C_EnableIT_RXFNE(i3c);
+		LL_I3C_EnableIT_CFNF(i3c);
+		LL_I3C_EnableIT_SFNE(i3c);
+	}
+	LL_I3C_EnableIT_FC(i3c);
+	LL_I3C_EnableIT_ERR(i3c);
+}
+
+static void i3c_stm32_xfer_complete(const struct device *dev, int result)
+{
+	struct i3c_stm32_data *data = dev->data;
+	const struct i3c_stm32_config *config = dev->config;
+	I3C_TypeDef *i3c = config->i3c;
+	unsigned int key = irq_lock();
+
+	LL_I3C_DisableIT_TXFNF(i3c);
+	LL_I3C_DisableIT_RXFNE(i3c);
+	LL_I3C_DisableIT_CFNF(i3c);
+	LL_I3C_DisableIT_SFNE(i3c);
+	LL_I3C_DisableIT_FC(i3c);
+	LL_I3C_DisableIT_ERR(i3c);
+	if (data->xfer_active) {
+		data->xfer_active = false;
+		data->xfer_result = result;
+		k_sem_give(&data->device_sync_sem);
+	}
+	irq_unlock(key);
+}
+
+static int i3c_stm32_xfer_wait(const struct device *dev)
+{
+	struct i3c_stm32_data *data = dev->data;
+
+	if (k_sem_take(&data->device_sync_sem, STM32_I3C_TRANSFER_TIMEOUT) != 0) {
+		i3c_stm32_xfer_complete(dev, -ETIMEDOUT);
+	}
+	return data->xfer_result;
+}
+
+static int i3c_stm32_xfer_end(const struct device *dev, int result)
+{
+	struct i3c_stm32_data *data = dev->data;
+	int ret;
+
+	i3c_stm32_xfer_complete(dev, result);
+	data->msg_state = STM32_I3C_MSG_IDLE;
+	data->sf_state = STM32_I3C_SF_IDLE;
+	data->ccc_payload = NULL;
+	data->ccc_target_payload = NULL;
+	pm_policy_state_lock_put(PM_STATE_SUSPEND_TO_IDLE, PM_ALL_SUBSTATES);
+	ret = pm_device_runtime_put(dev);
+	return result != 0 ? result : ret;
 }
 
 /**
@@ -1054,6 +1151,7 @@ static int i3c_stm32_do_ccc(const struct device *dev, struct i3c_ccc_payload *pa
 	const struct i3c_stm32_config *config = dev->config;
 	struct i3c_stm32_data *data = dev->data;
 	I3C_TypeDef *i3c = config->i3c;
+	int ret;
 
 	__ASSERT(dev != NULL, "I3C Device is NULL.");
 	__ASSERT(payload != NULL, "I3C Payload is NULL.");
@@ -1081,16 +1179,13 @@ static int i3c_stm32_do_ccc(const struct device *dev, struct i3c_ccc_payload *pa
 
 	k_mutex_lock(&data->bus_mutex, K_FOREVER);
 
+	ret = i3c_stm32_xfer_start(dev, STM32_I3C_MSG_CCC);
+	if (ret != 0) {
+		goto unlock;
+	}
+
 	/* RXLAST identifies the target boundary, including short responses. */
 	LL_I3C_DisableStatusFIFO(i3c);
-
-	(void)pm_device_runtime_get(dev);
-
-	/* Prevent the clocks to be stopped during the transaction */
-	pm_policy_state_lock_get(PM_STATE_SUSPEND_TO_IDLE, PM_ALL_SUBSTATES);
-
-	/* Mark current transfer as CCC */
-	data->msg_state = STM32_I3C_MSG_CCC;
 	data->ccc_payload = payload;
 	data->ccc_target_idx = 0;
 	data->ccc_target_payload = payload->targets.payloads;
@@ -1102,28 +1197,21 @@ static int i3c_stm32_do_ccc(const struct device *dev, struct i3c_ccc_payload *pa
 	}
 
 	/* Start CCC transfer */
+	i3c_stm32_xfer_arm(dev);
 	LL_I3C_ControllerHandleCCC(i3c, payload->ccc.id, payload->ccc.data_len,
 				   (i3c_ccc_is_payload_broadcast(payload)
 					    ? LL_I3C_GENERATE_STOP
 					    : LL_I3C_GENERATE_RESTART));
 
-	/* Wait for CCC to complete */
-	if (k_sem_take(&data->device_sync_sem, STM32_I3C_TRANSFER_TIMEOUT) != 0) {
-		LL_I3C_EnableStatusFIFO(i3c);
+	ret = i3c_stm32_xfer_wait(dev);
+	if (ret != 0) {
 		i3c_stm32_clear_err(dev, false);
-		return -ETIMEDOUT;
 	}
-
-	if (data->msg_state == STM32_I3C_MSG_ERR) {
-		LL_I3C_EnableStatusFIFO(i3c);
-		i3c_stm32_clear_err(dev, false);
-		return -EIO;
-	}
-
 	LL_I3C_EnableStatusFIFO(i3c);
+	ret = i3c_stm32_xfer_end(dev, ret);
+unlock:
 	k_mutex_unlock(&data->bus_mutex);
-
-	return 0;
+	return ret;
 }
 
 /* Handles the ENTDAA CCC */
@@ -1136,13 +1224,13 @@ static int i3c_stm32_do_daa(const struct device *dev)
 
 	k_mutex_lock(&data->bus_mutex, K_FOREVER);
 
-	(void)pm_device_runtime_get(dev);
-
-	/* Prevent the clocks to be stopped during the transaction */
-	pm_policy_state_lock_get(PM_STATE_SUSPEND_TO_IDLE, PM_ALL_SUBSTATES);
-
-	/* Mark current transfer as DAA */
-	data->msg_state = STM32_I3C_MSG_DAA;
+	ret = i3c_stm32_xfer_start(dev, STM32_I3C_MSG_DAA);
+	if (ret != 0) {
+		goto unlock;
+	}
+	data->pid = 0;
+	data->daa_rx_rcv = 0;
+	i3c_stm32_xfer_arm(dev);
 
 	/* Disable TXFNF interrupt, the RXFNE interrupt will enable it once all PID bytes are
 	 * received
@@ -1152,24 +1240,13 @@ static int i3c_stm32_do_daa(const struct device *dev)
 	/* Start DAA */
 	LL_I3C_ControllerHandleCCC(i3c, I3C_CCC_ENTDAA, 0, LL_I3C_GENERATE_STOP);
 
-	/* Wait for DAA to finish */
-	if (k_sem_take(&data->device_sync_sem, STM32_I3C_TRANSFER_TIMEOUT) != 0) {
-		ret = -ETIMEDOUT;
-		goto i3c_stm32_do_daa_ending;
-	}
-
-	if (data->msg_state == STM32_I3C_MSG_ERR) {
+	ret = i3c_stm32_xfer_wait(dev);
+	if (ret != 0) {
 		i3c_stm32_clear_err(dev, false);
-		ret = -EIO;
-		goto i3c_stm32_do_daa_ending;
 	}
-
-i3c_stm32_do_daa_ending:
-	/* We enable TX interrupt again in any case */
-	LL_I3C_EnableIT_TXFNF(i3c);
-
+	ret = i3c_stm32_xfer_end(dev, ret);
+unlock:
 	k_mutex_unlock(&data->bus_mutex);
-
 	return ret;
 }
 
@@ -1255,19 +1332,11 @@ static int i3c_stm32_dma_msg_config(const struct device *dev, uint32_t buf_addr,
 
 static int i3c_stm32_transfer_begin(const struct device *dev)
 {
-	struct i3c_stm32_data *data = dev->data;
 	const struct i3c_stm32_config *config = dev->config;
 	I3C_TypeDef *i3c = config->i3c;
 
-	data->msg_state = STM32_I3C_MSG;
-	data->sf_state = STM32_I3C_SF;
-
-	(void)pm_device_runtime_get(dev);
-
-	/* Prevent the clocks to be stopped during the transaction */
-	pm_policy_state_lock_get(PM_STATE_SUSPEND_TO_IDLE, PM_ALL_SUBSTATES);
-
 #ifdef CONFIG_I3C_STM32_DMA
+	struct i3c_stm32_data *data = dev->data;
 	struct i3c_stm32_msg *curr_msg = &data->curr_msg;
 
 	data->fifo_len = curr_msg->num_msgs * sizeof(uint32_t);
@@ -1314,18 +1383,10 @@ static int i3c_stm32_transfer_begin(const struct device *dev)
 #endif
 
 	/* Begin transmission */
+	i3c_stm32_xfer_arm(dev);
 	LL_I3C_RequestTransfer(i3c);
 
-	/* Wait for whole transfer to complete */
-	if (k_sem_take(&data->device_sync_sem, STM32_I3C_TRANSFER_TIMEOUT) != 0) {
-		return -ETIMEDOUT;
-	}
-
-	if (data->msg_state == STM32_I3C_MSG_ERR) {
-		return -EIO;
-	}
-
-	return 0;
+	return i3c_stm32_xfer_wait(dev);
 }
 
 /* Handles the controller private read/write transfers */
@@ -1346,18 +1407,20 @@ static int i3c_stm32_i3c_transfer(const struct device *dev, struct i3c_device_de
 	}
 
 	k_mutex_lock(&data->bus_mutex, K_FOREVER);
+	ret = i3c_stm32_xfer_start(dev, STM32_I3C_MSG);
+	if (ret != 0) {
+		goto unlock;
+	}
 	ret = i3c_stm32_curr_msg_init(dev, msgs, NULL, num_msgs, target->dynamic_addr);
 	if (ret != 0) {
-		i3c_stm32_clear_err(dev, false);
 		LOG_ERR("Failed to initialize transfer messages, err=%d", ret);
-		return ret;
+		goto finish;
 	}
 
 	ret = i3c_stm32_transfer_begin(dev);
 	if (ret != 0) {
-		i3c_stm32_clear_err(dev, false);
 		LOG_ERR("Failed to transfer messages, err=%d", ret);
-		return ret;
+		goto finish;
 	}
 
 #ifdef CONFIG_I3C_STM32_DMA
@@ -1368,13 +1431,20 @@ static int i3c_stm32_i3c_transfer(const struct device *dev, struct i3c_device_de
 
 	k_heap_free(&stm32_i3c_fifo_heap, data->control_fifo);
 	k_heap_free(&stm32_i3c_fifo_heap, data->status_fifo);
+	data->control_fifo = NULL;
+	data->status_fifo = NULL;
 
 	i3c_stm32_end_dma_requests(dev);
 #endif
 
+finish:
+	if (ret != 0) {
+		i3c_stm32_clear_err(dev, false);
+	}
+	ret = i3c_stm32_xfer_end(dev, ret);
+unlock:
 	k_mutex_unlock(&data->bus_mutex);
-
-	return 0;
+	return ret;
 }
 
 static int i3c_stm32_i2c_transfer(const struct device *dev, struct i2c_msg *msgs, uint8_t num_msgs,
@@ -1397,22 +1467,24 @@ static int i3c_stm32_i2c_transfer(const struct device *dev, struct i2c_msg *msgs
 	}
 
 	k_mutex_lock(&data->bus_mutex, K_FOREVER);
+	ret = i3c_stm32_xfer_start(dev, STM32_I3C_MSG);
+	if (ret != 0) {
+		goto unlock;
+	}
 
 	/* Disable arbitration header for all I2C messages in case no I3C devices exist on bus */
 	LL_I3C_DisableArbitrationHeader(i3c);
 
 	ret = i3c_stm32_curr_msg_init(dev, NULL, msgs, num_msgs, addr);
 	if (ret != 0) {
-		i3c_stm32_clear_err(dev, false);
 		LOG_ERR("Failed to initialize transfer messages, err=%d", ret);
-		return ret;
+		goto finish;
 	}
 
 	ret = i3c_stm32_transfer_begin(dev);
 	if (ret != 0) {
-		i3c_stm32_clear_err(dev, false);
 		LOG_ERR("Failed to transfer messages, err=%d", ret);
-		return ret;
+		goto finish;
 	}
 
 	LL_I3C_EnableArbitrationHeader(i3c);
@@ -1420,13 +1492,20 @@ static int i3c_stm32_i2c_transfer(const struct device *dev, struct i2c_msg *msgs
 #ifdef CONFIG_I3C_STM32_DMA
 	k_heap_free(&stm32_i3c_fifo_heap, data->control_fifo);
 	k_heap_free(&stm32_i3c_fifo_heap, data->status_fifo);
+	data->control_fifo = NULL;
+	data->status_fifo = NULL;
 
 	i3c_stm32_end_dma_requests(dev);
 #endif
 
+finish:
+	if (ret != 0) {
+		i3c_stm32_clear_err(dev, true);
+	}
+	ret = i3c_stm32_xfer_end(dev, ret);
+unlock:
 	k_mutex_unlock(&data->bus_mutex);
-
-	return 0;
+	return ret;
 }
 #endif /*CONFIG_I3C_CONTROLLER*/
 
@@ -1581,12 +1660,12 @@ static void i3c_stm32_controller_init(const struct device *dev)
 
 	LL_I3C_Enable(i3c);
 
-	LL_I3C_EnableIT_FC(i3c);
-	LL_I3C_EnableIT_CFNF(i3c);
-	LL_I3C_EnableIT_SFNE(i3c);
-	LL_I3C_EnableIT_RXFNE(i3c);
-	LL_I3C_EnableIT_TXFNF(i3c);
-	LL_I3C_EnableIT_ERR(i3c);
+	LL_I3C_DisableIT_FC(i3c);
+	LL_I3C_DisableIT_CFNF(i3c);
+	LL_I3C_DisableIT_SFNE(i3c);
+	LL_I3C_DisableIT_RXFNE(i3c);
+	LL_I3C_DisableIT_TXFNF(i3c);
+	LL_I3C_DisableIT_ERR(i3c);
 	LL_I3C_EnableIT_WKP(i3c);
 
 #ifdef CONFIG_I3C_USE_IBI
@@ -1698,7 +1777,7 @@ static int i3c_stm32_init(const struct device *dev)
 	}
 #endif
 
-	k_sem_init(&data->device_sync_sem, 0, K_SEM_MAX_LIMIT);
+	k_sem_init(&data->device_sync_sem, 0, 1);
 
 	ret = i3c_addr_slots_init(dev);
 	if (ret != 0) {
@@ -2088,7 +2167,7 @@ static void i3c_stm32_event_isr(void *arg)
 	}
 
 	/* Status FIFO not empty handler */
-	if (LL_I3C_IsActiveFlag_SFNE(i3c) && LL_I3C_IsEnabledIT_SFNE(i3c)) {
+	while (LL_I3C_IsActiveFlag_SFNE(i3c) && LL_I3C_IsEnabledIT_SFNE(i3c)) {
 
 		if (data->msg_state == STM32_I3C_MSG) {
 			size_t num_xfer = LL_I3C_GetXferDataCount(i3c);
@@ -2112,10 +2191,8 @@ static void i3c_stm32_event_isr(void *arg)
 		LL_I3C_ClearFlag_FC(i3c);
 #ifdef CONFIG_I3C_CONTROLLER
 		if (ll_i3c_is_in_controller_mode(i3c)) {
-			k_sem_give(&data->device_sync_sem);
-
-			(void)pm_device_runtime_put(dev);
-			pm_policy_state_lock_put(PM_STATE_SUSPEND_TO_IDLE, PM_ALL_SUBSTATES);
+			i3c_stm32_xfer_complete(dev,
+				LL_I3C_IsActiveFlag_ERR(i3c) ? -EIO : 0);
 		}
 #endif /*CONFIG_I3C_CONTROLLER*/
 		/* Mark bus as idle after each frame complete */
@@ -2159,11 +2236,9 @@ static int i3c_stm32_error(void *arg)
 	struct i3c_stm32_data *data = dev->data;
 	I3C_TypeDef *i3c = config->i3c;
 
-#ifdef CONFIG_I3C_STM32_COMBINED_INTERRUPT
-	if (!LL_I3C_IsActiveFlag_ERR(i3c)) {
+	if (!LL_I3C_IsActiveFlag_ERR(i3c) || !LL_I3C_IsEnabledIT_ERR(i3c)) {
 		return 0;
 	}
-#endif /* CONFIG_I3C_STM32_COMBINED_INTERRUPT */
 
 	i3c_stm32_log_err_type(dev);
 
@@ -2171,10 +2246,11 @@ static int i3c_stm32_error(void *arg)
 
 	data->msg_state = STM32_I3C_MSG_ERR;
 
-	k_sem_give(&data->device_sync_sem);
-
-	(void)pm_device_runtime_put(dev);
-	pm_policy_state_lock_put(PM_STATE_SUSPEND_TO_IDLE, PM_ALL_SUBSTATES);
+#ifdef CONFIG_I3C_CONTROLLER
+	if (ll_i3c_is_in_controller_mode(i3c)) {
+		i3c_stm32_xfer_complete(dev, -EIO);
+	}
+#endif
 
 	return 1;
 }
