@@ -482,6 +482,20 @@
 			status = "disabled";
 		};
 
+		/* I2C1 and I3C1 are mutually exclusive; selected by I2C_NI3C option byte. */
+		i3c1: i3c@40005400 {
+			compatible = "st,stm32-i3c";
+			reg = <0x40005400 0x400>;
+			interrupts = <89 0>, <90 0>;
+			interrupt-names = "event", "error";
+			#address-cells = <3>;
+			#size-cells = <0>;
+			clocks = <&rcc STM32_CLOCK(APB1, 21)>;
+			resets = <&rctl STM32_RESET(APB1L, 21)>;
+			zephyr,pm-device-runtime-auto;
+			status = "disabled";
+		};
+
 		i2c2: i2c@40005800 {
 			compatible = "st,stm32-i2c-v2";
 			clock-frequency = <I2C_BITRATE_STANDARD>;
