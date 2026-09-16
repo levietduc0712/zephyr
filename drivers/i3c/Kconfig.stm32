@@ -11,6 +11,7 @@ config I3C_STM32
 	depends on DT_HAS_ST_STM32_I3C_ENABLED
 	select I3C_IBI_WORKQUEUE if I3C_USE_IBI && I3C_CONTROLLER
 	select PINCTRL
+	select RESET
 	default y
 	help
 	  Enable support for I3C on STM32 microcontrollers.

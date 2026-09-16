@@ -11,6 +11,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/drivers/pinctrl.h>
+#include <zephyr/drivers/reset.h>
 #ifdef CONFIG_I3C_STM32_DMA
 #include <zephyr/drivers/dma/dma_stm32.h>
 #include <zephyr/drivers/dma.h>
@@ -127,6 +128,7 @@ struct i3c_stm32_config {
 	const struct stm32_pclken *pclken;     /* Pointer to peripheral clock configuration */
 	size_t pclk_len;
 	const struct pinctrl_dev_config *pcfg; /* Pointer to pin control configuration */
+	struct reset_dt_spec reset;
 #ifdef CONFIG_I3C_TARGET
 	bool target_mode;
 	uint8_t mipi_instance;
@@ -1748,6 +1750,13 @@ static int i3c_stm32_init(const struct device *dev)
 	int ret;
 
 	k_mutex_init(&data->bus_mutex);
+	if (!device_is_ready(config->reset.dev)) {
+		return -ENODEV;
+	}
+	ret = reset_line_toggle_dt(&config->reset);
+	if (ret != 0) {
+		return ret;
+	}
 	config->irq_config_func(dev);
 
 #ifdef CONFIG_I3C_TARGET
@@ -2609,6 +2618,7 @@ static DEVICE_API(i3c, i3c_stm32_driver_api) = {
 		.pclken = pclken_##index,                                                          \
 		.pclk_len = DT_INST_NUM_CLOCKS(index),                                             \
 		.pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(index),                                     \
+		.reset = RESET_DT_SPEC_INST_GET(index),                                           \
 		IF_ENABLED(UTIL_AND(IS_ENABLED(CONFIG_I3C_TARGET),                                 \
 				    DT_INST_PROP(index, target_mode)), (                           \
 		.target_mode = DT_INST_PROP(index, target_mode),                                   \
