@@ -164,6 +164,43 @@ and a ST morpho connector. Board is configured as follows:
 - FDCAN1 RX/TX : PD0, PD1
 - ETH : A2, A7, B6, G4, G5, G6, G11, G12, G13
 
+I3C
+---
+
+I3C1 uses PB8 (SCL, Arduino D15, CN7 pin 2) and PB9 (SDA, Arduino D14,
+CN7 pin 4), both with alternate function AF4. The kernel clock is PCLK1.
+The board configures a 12.5 MHz I3C bus and a 400 kHz legacy I2C bus.
+
+I2C1 and I3C1 share the peripheral address, clock, reset, and pins and must
+not be enabled together. I2C1 is enabled by default. Before running an I3C
+application, use `STM32CubeProgrammer`_ to set the ``I2C_NI3C`` option byte
+to ``0`` (I3C selected) and power-cycle the board to reload the option bytes.
+Zephyr does not program this option byte. Restore it to ``1`` before using
+I2C1 again. See the `STM32H7Sx reference manual`_ for the option-byte selection.
+
+To enable I3C1, save the following as ``i3c.overlay``:
+
+.. code-block:: dts
+
+   &i2c1 {
+           status = "disabled";
+   };
+
+   &i3c1 {
+           status = "okay";
+   };
+
+The :zephyr:code-sample:`hello_world` sample can build the controller without
+requiring a sensor driver:
+
+.. code-block:: console
+
+   west build -p always -b nucleo_h7s3l8 samples/hello_world -- \
+     -DDTC_OVERLAY_FILE=/absolute/path/to/i3c.overlay \
+     -DCONFIG_I3C=y -DCONFIG_I3C_CONTROLLER_ROLE_ONLY=y -DCONFIG_I3C_STM32_DMA=n
+
+``CONFIG_I3C_CONTROLLER_ROLE_ONLY`` enables ``CONFIG_I3C_CONTROLLER`` automatically.
+
 System Clock
 ------------
 
