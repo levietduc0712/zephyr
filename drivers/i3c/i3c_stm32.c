@@ -2013,18 +2013,20 @@ static void i3c_stm32_event_isr_rx(const struct device *dev)
 #ifdef CONFIG_I3C_CONTROLLER
 	switch (data->msg_state) {
 	case STM32_I3C_MSG: {
-		uint8_t *buf = NULL;
-		size_t *offset = NULL;
-		uint32_t len = 0;
+		while (LL_I3C_IsActiveFlag_RXFNE(i3c)) {
+			uint8_t *buf = NULL;
+			size_t *offset = NULL;
+			uint32_t len = 0;
 
-		if (i3c_stm32_curr_msg_xfer_get_buf(dev, &buf, &len, &offset) != 0 ||
-		    !i3c_stm32_curr_msg_xfer_is_read(dev)) {
-			break;
-		}
-		if (i3c_stm32_drain_rx_fifo(dev, buf, len, offset)) {
+			if (i3c_stm32_curr_msg_xfer_get_buf(dev, &buf, &len, &offset) != 0 ||
+			    !i3c_stm32_curr_msg_xfer_is_read(dev)) {
+				break;
+			}
+			if (!i3c_stm32_drain_rx_fifo(dev, buf, len, offset)) {
+				break;
+			}
 			i3c_stm32_curr_msg_xfer_next(dev);
 		}
-
 		break;
 	}
 	case STM32_I3C_MSG_DAA: {
@@ -2161,6 +2163,8 @@ static void i3c_stm32_event_isr(void *arg)
 	const struct i3c_stm32_config *config = dev->config;
 	struct i3c_stm32_data *data = dev->data;
 	I3C_TypeDef *i3c = config->i3c;
+	/* If FC arrives while draining FIFOs, finish on the next interrupt. */
+	bool frame_complete = LL_I3C_IsActiveFlag_FC(i3c) && LL_I3C_IsEnabledIT_FC(i3c);
 
 	/* TX FIFO not full handler */
 	if (LL_I3C_IsActiveFlag_TXFNF(i3c) && LL_I3C_IsEnabledIT_TXFNF(i3c)) {
@@ -2199,7 +2203,7 @@ static void i3c_stm32_event_isr(void *arg)
 #endif /*CONFIG_I3C_CONTROLLER*/
 
 	/* Frame complete handler */
-	if (LL_I3C_IsActiveFlag_FC(i3c) && LL_I3C_IsEnabledIT_FC(i3c)) {
+	if (frame_complete) {
 		LL_I3C_ClearFlag_FC(i3c);
 #ifdef CONFIG_I3C_CONTROLLER
 		if (ll_i3c_is_in_controller_mode(i3c)) {
