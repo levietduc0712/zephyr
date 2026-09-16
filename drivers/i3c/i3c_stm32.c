@@ -1964,19 +1964,18 @@ static void i3c_stm32_event_isr_tx(const struct device *dev)
 
 		break;
 	}
-	case STM32_I3C_MSG_CCC: {
-		struct i3c_ccc_payload *payload = data->ccc_payload;
-
-		if (payload->ccc.num_xfer < payload->ccc.data_len) {
-			LL_I3C_TransmitData8(i3c, payload->ccc.data[payload->ccc.num_xfer++]);
-		}
-		break;
-	}
+	case STM32_I3C_MSG_CCC:
 	case STM32_I3C_MSG_CCC_P2: {
 		struct i3c_ccc_target_payload *target = data->ccc_target_payload;
 		struct i3c_ccc_payload *payload = data->ccc_payload;
 
-		if (target < payload->targets.payloads + payload->targets.num_targets &&
+		/* Control words can be queued before all common CCC bytes are sent. */
+		if (payload->ccc.num_xfer < payload->ccc.data_len) {
+			LL_I3C_TransmitData8(i3c, payload->ccc.data[payload->ccc.num_xfer++]);
+			break;
+		}
+		if (target != NULL &&
+		    target < payload->targets.payloads + payload->targets.num_targets &&
 		    !target->rnw && target->num_xfer < target->data_len) {
 			LL_I3C_TransmitData8(i3c, target->data[target->num_xfer++]);
 			if (target->num_xfer == target->data_len) {
