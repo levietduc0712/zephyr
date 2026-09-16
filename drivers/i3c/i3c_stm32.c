@@ -1074,14 +1074,18 @@ static int i3c_stm32_do_ccc(const struct device *dev, struct i3c_ccc_payload *pa
 	if (payload->ccc.data_len > 0 && payload->ccc.data == NULL) {
 		return -EINVAL;
 	}
+	for (size_t i = 0; i < payload->targets.num_targets; i++) {
+		struct i3c_ccc_target_payload *target = &payload->targets.payloads[i];
+
+		if (target->data_len > 0 && target->data == NULL) {
+			return -EINVAL;
+		}
+	}
 
 	k_mutex_lock(&data->bus_mutex, K_FOREVER);
 
-	/* Disable Status FIFO and enable the RXTGTEND interrupt flag to detected early read
-	 * termination from target during read CCC commands
-	 */
+	/* RXLAST identifies the target boundary, including short responses. */
 	LL_I3C_DisableStatusFIFO(i3c);
-	LL_I3C_EnableIT_RXTGTEND(i3c);
 
 	(void)pm_device_runtime_get(dev);
 
@@ -1108,20 +1112,17 @@ static int i3c_stm32_do_ccc(const struct device *dev, struct i3c_ccc_payload *pa
 
 	/* Wait for CCC to complete */
 	if (k_sem_take(&data->device_sync_sem, STM32_I3C_TRANSFER_TIMEOUT) != 0) {
-		LL_I3C_DisableIT_RXTGTEND(i3c);
 		LL_I3C_EnableStatusFIFO(i3c);
 		i3c_stm32_clear_err(dev, false);
 		return -ETIMEDOUT;
 	}
 
 	if (data->msg_state == STM32_I3C_MSG_ERR) {
-		LL_I3C_DisableIT_RXTGTEND(i3c);
 		LL_I3C_EnableStatusFIFO(i3c);
 		i3c_stm32_clear_err(dev, false);
 		return -EIO;
 	}
 
-	LL_I3C_DisableIT_RXTGTEND(i3c);
 	LL_I3C_EnableStatusFIFO(i3c);
 	k_mutex_unlock(&data->bus_mutex);
 
@@ -1862,11 +1863,11 @@ static void i3c_stm32_event_isr_tx(const struct device *dev)
 	}
 	case STM32_I3C_MSG_CCC_P2: {
 		struct i3c_ccc_target_payload *target = data->ccc_target_payload;
+		struct i3c_ccc_payload *payload = data->ccc_payload;
 
-		if (target->num_xfer < target->data_len) {
+		if (target < payload->targets.payloads + payload->targets.num_targets &&
+		    !target->rnw && target->num_xfer < target->data_len) {
 			LL_I3C_TransmitData8(i3c, target->data[target->num_xfer++]);
-
-			/* After sending all bytes for current target, move on to the next target */
 			if (target->num_xfer == target->data_len) {
 				data->ccc_target_payload++;
 			}
@@ -1934,15 +1935,19 @@ static void i3c_stm32_event_isr_rx(const struct device *dev)
 		break;
 	}
 	case STM32_I3C_MSG_CCC_P2: {
-		struct i3c_ccc_target_payload *target = data->ccc_target_payload;
+		struct i3c_ccc_payload *payload = data->ccc_payload;
 
-		if (target->num_xfer < target->data_len) {
-			target->data[target->num_xfer++] = LL_I3C_ReceiveData8(i3c);
+		while (LL_I3C_IsActiveFlag_RXFNE(i3c)) {
+			struct i3c_ccc_target_payload *target = data->ccc_target_payload;
+			bool last = LL_I3C_IsActiveFlag_RXLAST(i3c);
+			uint8_t byte = LL_I3C_ReceiveData8(i3c);
 
-			/* After receiving all bytes for current target, move on to the next target
-			 */
-			if (target->num_xfer == target->data_len) {
-				data->ccc_target_payload++;
+			if (target < payload->targets.payloads + payload->targets.num_targets &&
+			    target->rnw && target->num_xfer < target->data_len) {
+				target->data[target->num_xfer++] = byte;
+				if (last) {
+					data->ccc_target_payload++;
+				}
 			}
 		}
 		break;
@@ -2091,13 +2096,7 @@ static void i3c_stm32_event_isr(void *arg)
 			ARG_UNUSED(status_reg);
 		}
 	}
-
-	/* Target read early termination flag (only used during CCC commands)*/
-	if (LL_I3C_IsActiveFlag_RXTGTEND(i3c) && LL_I3C_IsEnabledIT_RXTGTEND(i3c)) {
-		/* A target ended a read request early during a CCC command, move the ptr to the
-		 * next target
-		 */
-		data->ccc_target_payload++;
+	if (LL_I3C_IsActiveFlag_RXTGTEND(i3c)) {
 		LL_I3C_ClearFlag_RXTGTEND(i3c);
 	}
 #endif /*CONFIG_I3C_CONTROLLER*/
