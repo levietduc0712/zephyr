@@ -1,0 +1,21 @@
+sample:
+  name: X-NUCLEO-IKS4A1 I3C sensors
+common:
+  tags:
+    - sensor
+    - i3c
+    - shield
+  harness: console
+  harness_config:
+    type: multi_line
+    regex:
+      - "lsm6dsv16x.*m/s\\^2"
+      - "lps22df.*Pa"
+      - "lsm6dso16is.*m/s\\^2"
+      - "lis2mdl.*gauss"
+tests:
+  sample.shields.x_nucleo_iks4a1.standard_i3c:
+    platform_allow: nucleo_h7s3l8
+  sample.shields.x_nucleo_iks4a1.standard_i3c.ext_flash:
+    platform_allow: nucleo_h7s3l8/stm32h7s3xx/ext_flash_app
+    sysbuild: true
