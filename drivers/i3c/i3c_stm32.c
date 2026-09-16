@@ -846,20 +846,27 @@ unlock:
 static int i3c_stm32_i2c_configure(const struct device *dev, uint32_t config)
 {
 	struct i3c_stm32_data *data = dev->data;
-	struct i3c_config_controller *ctrl_config = &data->drv_data.ctrl_config;
+	struct i3c_config_controller ctrl_config;
+	uint32_t frequency;
+	int ret;
 
 	switch (I2C_SPEED_GET(config)) {
 	case I2C_SPEED_FAST:
-		ctrl_config->scl.i2c = 400000;
+		frequency = 400000U;
 		break;
 	case I2C_SPEED_FAST_PLUS:
-		ctrl_config->scl.i2c = 1000000;
+		frequency = 1000000U;
 		break;
 	default:
 		return -EINVAL;
 	}
 
-	return 0;
+	k_mutex_lock(&data->bus_mutex, K_FOREVER);
+	ctrl_config = data->drv_data.ctrl_config;
+	ctrl_config.scl.i2c = frequency;
+	ret = i3c_stm32_configure(dev, I3C_CONFIG_CONTROLLER, &ctrl_config);
+	k_mutex_unlock(&data->bus_mutex);
+	return ret;
 }
 
 /**
