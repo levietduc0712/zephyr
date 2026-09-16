@@ -1187,7 +1187,6 @@ static int i3c_stm32_do_ccc(const struct device *dev, struct i3c_ccc_payload *pa
 	}
 
 	/* RXLAST identifies the target boundary, including short responses. */
-	LL_I3C_DisableStatusFIFO(i3c);
 	data->ccc_payload = payload;
 	data->ccc_target_idx = 0;
 	data->ccc_target_payload = payload->targets.payloads;
@@ -1209,7 +1208,6 @@ static int i3c_stm32_do_ccc(const struct device *dev, struct i3c_ccc_payload *pa
 	if (ret != 0) {
 		i3c_stm32_clear_err(dev, false);
 	}
-	LL_I3C_EnableStatusFIFO(i3c);
 	ret = i3c_stm32_xfer_end(dev, ret);
 unlock:
 	k_mutex_unlock(&data->bus_mutex);
