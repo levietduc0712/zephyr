@@ -21,6 +21,10 @@ that controller and disable any I2C controller sharing its pins.
 
 On :zephyr:board:`nucleo_h7s3l8`, select I3C using the ``I2C_NI3C`` option
 byte as described in the board documentation before running the sample.
+The sample enables cache management on this board so that instruction and
+data caches are active when executing from external flash. Servicing I3C
+FIFOs with interrupts requires sufficient CPU throughput; uncached external
+flash execution can cause FIFO underruns or overruns.
 
 Building and running
 ********************
