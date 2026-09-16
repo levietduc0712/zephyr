@@ -27,13 +27,15 @@ int main(void)
 
 	for (size_t i = 0; i < ARRAY_SIZE(sensors); i++) {
 		struct sensor_value odr = { .val1 = sensors[i].frequency };
+		enum sensor_channel channel = sensors[i].channel == SENSOR_CHAN_PRESS
+					      ? SENSOR_CHAN_ALL : sensors[i].channel;
 
 		if (!device_is_ready(sensors[i].dev)) {
 			printk("%s is not ready\n", sensors[i].dev->name);
 			return 0;
 		}
 
-		ret = sensor_attr_set(sensors[i].dev, sensors[i].channel,
+		ret = sensor_attr_set(sensors[i].dev, channel,
 				      SENSOR_ATTR_SAMPLING_FREQUENCY, &odr);
 		if (ret < 0) {
 			printk("%s configuration failed: %d\n", sensors[i].dev->name, ret);
