@@ -138,7 +138,7 @@ The board configuration is:
 Devicetree Overlays
 *******************
 
-There are three predefined DT overlays in the board:
+There are four predefined DT overlays in the board:
 
 - :zephyr_file:`boards/shields/x_nucleo_iks4a1/x_nucleo_iks4a1.overlay`
   This overlay describes sensor connections (and matching h/w configuration to be done)
@@ -149,6 +149,11 @@ There are three predefined DT overlays in the board:
 - :zephyr_file:`boards/shields/x_nucleo_iks4a1/x_nucleo_iks4a1_shub2.overlay`
   This overlay describes sensor connections (and matching h/w configuration to be done)
   as explained in SHUB2 Mode (:ref:`x-nucleo-iks4a1-mode-2`)
+- :zephyr_file:`boards/shields/x_nucleo_iks4a1/x_nucleo_iks4a1_i3c.overlay`
+  This overlay uses Mode 1 wiring with LSM6DSV16X and LPS22DF as I3C targets,
+  and LSM6DSO16IS and LIS2MDL as legacy I2C targets on the same bus. The host
+  board must provide and enable ``arduino_i3c``. Disable any I2C controller
+  using the same pins before enabling I3C.
 
 Examples
 ********
