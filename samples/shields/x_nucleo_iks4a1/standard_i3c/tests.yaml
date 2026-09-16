@@ -19,3 +19,9 @@ tests:
   sample.shields.x_nucleo_iks4a1.standard_i3c.ext_flash:
     platform_allow: nucleo_h7s3l8/stm32h7s3xx/ext_flash_app
     sysbuild: true
+  sample.shields.x_nucleo_iks4a1.standard_i3c.dma:
+    platform_allow: nucleo_h7s3l8/stm32h7s3xx/ext_flash_app
+    sysbuild: true
+    extra_args:
+      - EXTRA_CONF_FILE=dma.conf
+      - EXTRA_DTC_OVERLAY_FILE=boards/nucleo_h7s3l8_dma.overlay

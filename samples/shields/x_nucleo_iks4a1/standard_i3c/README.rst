@@ -43,3 +43,20 @@ For larger configurations, use external flash:
    :west-args: --sysbuild
    :goals: build flash
    :compact:
+
+DMA
+***
+
+On NUCLEO-H7S3L8, enable DMA for longer transfers or higher bus rates:
+
+.. zephyr-app-commands::
+   :zephyr-app: samples/shields/x_nucleo_iks4a1/standard_i3c
+   :board: nucleo_h7s3l8/stm32h7s3xx/ext_flash_app
+   :west-args: --sysbuild
+   :gen-args: -DEXTRA_CONF_FILE=dma.conf -DEXTRA_DTC_OVERLAY_FILE=boards/nucleo_h7s3l8_dma.overlay
+   :goals: build flash
+   :compact:
+
+This configuration uses GPDMA1 channels 0 through 3 for RX, TX, control,
+and status transfers. Other enabled peripherals must not use these channels.
+CCC commands and dynamic address assignment continue to use interrupts.
