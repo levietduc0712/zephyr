@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+board:
+  name: frdm_imx95
+  full_name: FRDM-IMX95
+  vendor: nxp
+  socs:
+  - name: mimx9596
+    variants:
+    - name: ddr
+      cpucluster: m7

@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+identifier: frdm_imx95/mimx9596/m7/ddr
+name: NXP FRDM-i.MX95 Cortex-M7 DDR
+type: mcu
+arch: arm
+ram: 360
+toolchain:
+  - zephyr
+  - gnuarmemb
+supported:
+  - uart
+vendor: nxp

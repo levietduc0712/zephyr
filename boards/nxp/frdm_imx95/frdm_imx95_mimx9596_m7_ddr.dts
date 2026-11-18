@@ -1,0 +1,21 @@
+/*
+ * SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include "frdm_imx95_mimx9596_m7.dts"
+
+/ {
+	model = "NXP FRDM-i.MX95 Cortex-M7 DDR";
+
+	chosen {
+		zephyr,sram = &ddr;
+		/delete-property/ zephyr,flash;
+	};
+
+	/* Candidate image window; Linux must reserve it before coexistence. */
+	ddr: memory@80000000 {
+		device_type = "memory";
+		reg = <0x80000000 0x5a000>;
+	};
+};

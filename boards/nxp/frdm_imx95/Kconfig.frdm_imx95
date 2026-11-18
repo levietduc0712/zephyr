@@ -1,0 +1,6 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+config BOARD_FRDM_IMX95
+	select SOC_MIMX9596_M7 if BOARD_FRDM_IMX95_MIMX9596_M7 || BOARD_FRDM_IMX95_MIMX9596_M7_DDR
+	select SOC_PART_NUMBER_MIMX9596AVZXN

@@ -1,0 +1,43 @@
+/*
+ * SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/dts-v1/;
+
+#include <nxp/imx/nxp_imx95_m7.dtsi>
+#include "frdm_imx95-pinctrl.dtsi"
+
+/ {
+	model = "NXP FRDM-i.MX95 Cortex-M7";
+	compatible = "nxp,frdm-imx95";
+
+	chosen {
+		zephyr,flash = &itcm;
+		zephyr,sram = &m7_dtcm;
+		zephyr,console = &lpuart3;
+		zephyr,shell-uart = &lpuart3;
+	};
+
+	/* Leave suspend, non-cacheable and resource-table memory to firmware. */
+	m7_dtcm: memory@20004000 {
+		device_type = "memory";
+		reg = <0x20004000 0x1a000>;
+	};
+};
+
+/* Allocate through the bounded SRAM window, including explicit DTCM sections. */
+&dtcm {
+	status = "disabled";
+};
+
+&lpuart3 {
+	current-speed = <115200>;
+	pinctrl-0 = <&lpuart3_default>;
+	pinctrl-names = "default";
+	status = "okay";
+};
+
+&lptmr1 {
+	status = "okay";
+};

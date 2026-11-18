@@ -1,0 +1,18 @@
+/*
+ * SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <nxp/imx/pinctrl/mimx9596avzxn-pinctrl.dtsi>
+
+&pinctrl {
+	lpuart3_default: lpuart3-default {
+		group0 {
+			pinmux = <&iomuxc_gpio_io14_lpuart_tx_lpuart3_tx>,
+				 <&iomuxc_gpio_io15_lpuart_rx_lpuart3_rx>;
+			bias-pull-down;
+			slew-rate = "slightly_fast";
+			drive-strength = "x4";
+		};
+	};
+};
