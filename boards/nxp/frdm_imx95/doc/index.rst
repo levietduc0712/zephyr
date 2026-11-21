@@ -14,7 +14,8 @@ hardware operation or safe Linux coexistence.
 
 The supported targets are ``frdm_imx95/mimx9596/m7`` (TCM) and
 ``frdm_imx95/mimx9596/m7/ddr`` (DDR). A55 is not implemented by this board port.
-The M7 targets deliberately configure no flashing or debugging runner.
+
+.. zephyr:board-supported-runners::
 
 Console and System Manager
 **************************
@@ -221,6 +222,61 @@ reboot can leave M7 running its previous image. For a new M7 image, cleanly
 halt Linux and request a system reset from the SM console, or power cycle after
 shutting down Linux.
 
+Programming eMMC with west
+**************************
+
+The SPSDK runner uses ``nxpuuu`` to send the FRDM BSP bootloader over USB and
+write the assembled AHAB image to the eMMC boot partition. Install SPSDK and
+make sure ``nxpuuu`` is on the host's ``PATH``. Use BSP files for the same board
+and silicon revision, including the BSP's ``imx-boot`` staging files and the
+corresponding imx-mkimage checkout.
+
+On Linux, install the USB access rules from NXP's Universal Update Utility
+(``uuu -udev``), reload the udev rules, and reconnect J3.
+
+For the FRDM Linux 6.18.2 BSP on B0 silicon, prepare a private copy of the
+imx-mkimage checkout. Set ``bsp`` to the directory containing the BSP's
+``imx-boot-tools`` and ``imx-boot-*-flash_all`` files, and set ``mkimage`` to
+the checkout path. Run the following from the Zephyr repository after building
+the DDR target:
+
+.. code-block:: bash
+
+   build="$PWD/build/frdm_imx95_m7_ddr"
+   bsp_tools="$bsp/imx-boot-tools"
+   machine=imx95-15x15-lpddr4x-frdm
+   cp "$bsp_tools/mkimage_imx8" "$mkimage/"
+   cp "$bsp_tools"/lpddr4x_*_v202409.bin "$mkimage/iMX95/"
+   cp "$bsp_tools"/{mx95b0-ahab-container.img,oei-m33-ddr.bin,tee.bin} "$mkimage/iMX95/"
+   cp "$bsp_tools/bl31-imx95.bin-optee" "$mkimage/iMX95/bl31.bin"
+   cp "$bsp_tools/m33_image-mx95evk.bin" "$mkimage/iMX95/m33_image.bin"
+   cp "$bsp_tools/u-boot-$machine.bin-sd" "$mkimage/iMX95/u-boot.bin"
+   cp "$bsp_tools/u-boot-spl.bin-$machine-sd" "$mkimage/iMX95/u-boot-spl.bin"
+   cp "$build/zephyr/zephyr.bin" "$mkimage/iMX95/m7_image.bin"
+   make -C "$mkimage/iMX95" -f soc.mak REV=B0 OEI=YES LPDDR_TYPE=lpddr4x flash_all_ddr
+   cp "$mkimage/iMX95/flash.bin" "$build/flash.bin"
+
+For TCM, use the TCM build directory and the ``flash_all`` make target.
+Reassemble ``flash.bin`` after each Zephyr build.
+
+Shut down Linux before switching modes. Set SW1-1 to OFF and SW1-2 to ON,
+connect J3 to the host with a USB data cable, and reset the board into Serial
+Downloader mode. J1 provides the console. See the `FRDM-i.MX95 Quick Start Guide`_
+for the connector locations and physical switch positions.
+
+.. code-block:: bash
+
+   west flash -d "$build" --no-rebuild --bootdevice=emmc \
+     --bootloader "$bsp/imx-boot-$machine-sd.bin-flash_all" \
+     --flashbin "$build/flash.bin"
+
+After programming, set SW1-1 to ON and SW1-2 to OFF for eMMC boot and reset the
+board. On J1, look for the Zephyr boot banner and the Hello World message on
+the M7 console.
+
+To load the image into RAM for one boot, use ``--bootdevice=spl`` in the same
+command. Check the M7 console on J1 for the Zephyr banner and sample output.
+
 Linux coexistence and SD test procedure
 **************************************
 
@@ -291,5 +347,6 @@ the RPMsg TTY service. Use a system reset when updating the M7 firmware so both
 cores initialize the shared queues together.
 
 .. _AN14748: https://www.nxp.com/docs/en/application-note/AN14748.pdf
+.. _FRDM-i.MX95 Quick Start Guide: https://www.nxp.com/docs/en/quick-reference-guide/FRDMIMX95QSG.pdf
 .. _iMX95/soc.mak: https://github.com/nxp-imx/imx-mkimage/blob/c0debd7c0b4a125bd3ca66bc68f1915882b2bb62/iMX95/soc.mak
 .. _SM ROM handover implementation: https://github.com/nxp-imx/imx-sm/blob/c450f53974ea1df826970ad399cb338625b5638d/devices/MIMX95/sm/dev_sm_rom.c
