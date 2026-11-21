@@ -1,0 +1,37 @@
+/*
+ * SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <zephyr/dt-bindings/pwm/pwm.h>
+
+/ {
+	aliases {
+		pwm-led0 = &d19_green;
+	};
+
+	pwm-leds {
+		compatible = "pwm-leds";
+
+		d19_green: led-green {
+			pwms = <&tpm3 0 PWM_MSEC(1) PWM_POLARITY_NORMAL>;
+		};
+	};
+};
+
+&pinctrl {
+	tpm3_d19_default: tpm3-d19-default {
+		group0 {
+			pinmux = <&iomuxc_gpio_io04_tpm_ch_tpm3_ch0>;
+			bias-pull-down;
+			slew-rate = "slow";
+			drive-strength = "x4";
+		};
+	};
+};
+
+&tpm3 {
+	pinctrl-0 = <&tpm3_d19_default>;
+	pinctrl-names = "default";
+	status = "okay";
+};

@@ -37,12 +37,11 @@ Verify the actual SM image and configuration before attempting to boot.
 An authorization or transport failure can prevent both the timer and console
 from initializing, so absence of output is not proof of a UART wiring fault.
 
-In particular, the SM revision pinned by the Linux 6.18.2 BSP has configurations
-using CRC32 for the M7 SMT channel (``mx95evk``). This Zephyr SCMI shared-memory
-transport does not generate that CRC. Match the channel format, MU endpoint
-numbering, shared-memory address and permissions; a firmware filename or board
-name alone does not establish compatibility. Selecting a different SM resource
-partition can also move LPUART3 ownership away from M7.
+The board enables ``CONFIG_ARM_SCMI_NXP_VENDOR_EXTENSIONS``, which handles
+CRC32 on the M7 SMT channel used by the ``mx95evk`` SM configuration. Match
+the channel format, MU endpoint numbering, shared-memory address and resource
+permissions when selecting an SM image. A different SM configuration can
+assign LPUART3 to another core.
 
 Building and inspecting images
 *****************************
@@ -60,6 +59,19 @@ For interactive UART testing, substitute ``samples/subsys/console/echo`` and
 use separate build directories. Select the M7 USB UART channel at 115200 baud
 using the FRDM documentation and host enumeration; EVK COM-port numbers do not
 identify a FRDM port.
+
+To build Hello World with a diagnostic shell, enable these options:
+
+.. code-block:: console
+
+   west build -b frdm_imx95/mimx9596/m7/ddr samples/hello_world \
+     -d build/frdm_imx95_m7_ddr_shell -- -DCONFIG_SHELL=y \
+     -DCONFIG_SHELL_MINIMAL=y -DCONFIG_KERNEL_SHELL=y -DCONFIG_DEVICE_SHELL=y
+
+After a system reset, enter ``kernel uptime`` twice on the M7 console to
+verify that the kernel clock advances. ``device list`` reports whether the
+SCMI mailbox, shared memory, clock protocol and LPUART3 initialized. On the
+tested FRDM board the M7 console was ``/dev/ttyACM2`` on the J1 USB bridge.
 
 Each build produces ``zephyr/zephyr.elf``, ``zephyr/zephyr.bin``,
 ``zephyr/zephyr.map``, ``zephyr/zephyr.dts`` and ``zephyr/.config``. The binary
@@ -139,6 +151,8 @@ ARMv7-M MPU granularity can map more memory than the linker allocation. These
 regions do not establish inter-core ownership or Linux reservations. No shared
 IPC buffers or non-cacheable application regions are configured by this port.
 
+.. _frdm_imx95_boot_container:
+
 Boot-container integration
 **************************
 
@@ -198,8 +212,14 @@ For a BSP checkout, these read-only inspections expose the relevant inputs:
 Stage each verified ``zephyr.bin`` in a separate regular-file directory as
 ``m7_image.bin``, keeping its ELF, map and hashes. Assemble a container only in
 a separate, populated BSP staging copy after resolving the firmware and
-ownership requirements above. No FRDM ``flash.bin`` or hardware boot is
-validated by this board port.
+ownership requirements above. The DDR Hello World sample has been verified
+on hardware with the FRDM Linux 6.18.2 BSP, ``mx95evk`` SM build 819, and the
+M7 boot image loaded at ``0x80000000``. The M7 console printed the Zephyr
+banner and target name at 115200 baud while A55 Linux booted from eMMC.
+The diagnostic shell also verified serial receive and kernel uptime. A Linux
+reboot can leave M7 running its previous image. For a new M7 image, cleanly
+halt Linux and request a system reset from the SM console, or power cycle after
+shutting down Linux.
 
 Linux coexistence and SD test procedure
 **************************************
@@ -260,6 +280,15 @@ For a human-reviewed SD test:
 #. Keep capture logs, the container input manifest and hashes for each result.
    Restore the original ROM boot-media selection to return to the existing
    eMMC setup if the SD test fails; do not alter its saved environment.
+
+RPMsg with Cortex-A55 Linux
+***************************
+
+The :zephyr:code-sample:`frdm-imx95-rpmsg` uses the DDR target and the reserved
+memory in the FRDM Linux 6.18.2 Device Tree. System Manager starts the M7 from
+the boot container. Linux remoteproc attaches to the running M7 and registers
+the RPMsg TTY service. Use a system reset when updating the M7 firmware so both
+cores initialize the shared queues together.
 
 .. _AN14748: https://www.nxp.com/docs/en/application-note/AN14748.pdf
 .. _iMX95/soc.mak: https://github.com/nxp-imx/imx-mkimage/blob/c0debd7c0b4a125bd3ca66bc68f1915882b2bb62/iMX95/soc.mak

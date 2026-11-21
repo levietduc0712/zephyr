@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+sample:
+  name: FRDM-i.MX95 RPMsg echo
+  description: Echo RPMsg payloads to Linux on the FRDM-i.MX95 Cortex-M7.
+tests:
+  sample.board.nxp.frdm_imx95.rpmsg:
+    build_only: true
+    platform_allow: frdm_imx95/mimx9596/m7/ddr
+    integration_platforms:
+      - frdm_imx95/mimx9596/m7/ddr
+    tags:
+      - openamp
+      - ipc

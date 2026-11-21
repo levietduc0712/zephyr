@@ -1,0 +1,20 @@
+/*
+ * SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <zephyr/dt-bindings/memory-attr/memory-attr-arm.h>
+
+&{/reserved-memory} {
+	/* ARMv7-M MPU window spanning the Linux vrings, pool and resource table. */
+	memory@88000000 {
+		compatible = "zephyr,memory-region";
+		reg = <0x88000000 0x400000>;
+		zephyr,memory-region = "RPMSG_SHM";
+		zephyr,memory-attr = <DT_MEM_ARM_MPU_RAM_NOCACHE>;
+	};
+};
+
+&mu7 {
+	status = "okay";
+};
