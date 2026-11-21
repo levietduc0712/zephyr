@@ -15,7 +15,7 @@
 
 	/* Candidate image window; Linux must reserve it before coexistence. */
 	ddr: memory@80000000 {
-		device_type = "memory";
 		reg = <0x80000000 0x5a000>;
+		device_type = "memory";
 	};
 };

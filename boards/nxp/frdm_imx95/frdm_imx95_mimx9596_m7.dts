@@ -9,8 +9,8 @@
 #include "frdm_imx95-pinctrl.dtsi"
 
 / {
-	model = "NXP FRDM-i.MX95 Cortex-M7";
 	compatible = "nxp,frdm-imx95";
+	model = "NXP FRDM-i.MX95 Cortex-M7";
 
 	chosen {
 		zephyr,flash = &itcm;
@@ -21,8 +21,8 @@
 
 	/* Leave suspend, non-cacheable and resource-table memory to firmware. */
 	m7_dtcm: memory@20004000 {
-		device_type = "memory";
 		reg = <0x20004000 0x1a000>;
+		device_type = "memory";
 	};
 };
 

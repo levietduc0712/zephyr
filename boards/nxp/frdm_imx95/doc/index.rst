@@ -8,9 +8,8 @@ Overview
 
 FRDM-i.MX95 uses an i.MX9596 in a 15 x 15 package with LPDDR4X. These targets run
 Zephyr on Cortex-M7 while Cortex-M33 runs System Manager (SM). A55 Linux
-coexistence requires a matching boot container, SM configuration and Linux
-memory reservations. Compilation and static image checks do not establish
-hardware operation or safe Linux coexistence.
+coexistence requires a matching boot container and SM configuration. The A55
+boot chain must exclude the M7 DDR allocation from Linux RAM.
 
 The supported targets are ``frdm_imx95/mimx9596/m7`` (TCM) and
 ``frdm_imx95/mimx9596/m7/ddr`` (DDR). A55 is not implemented by this board port.
@@ -52,9 +51,12 @@ With a configured west workspace and Zephyr SDK, run from the Zephyr repository:
 .. code-block:: console
 
    west build -p always -b frdm_imx95/mimx9596/m7 samples/hello_world \
-     -d build/frdm_imx95_m7_tcm
+     -d build/frdm_imx95_m7_tcm -- -DCONFIG_BOARD_FRDM_IMX95_SPSDK=y
    west build -p always -b frdm_imx95/mimx9596/m7/ddr samples/hello_world \
-     -d build/frdm_imx95_m7_ddr
+     -d build/frdm_imx95_m7_ddr -- -DCONFIG_BOARD_FRDM_IMX95_SPSDK=y
+
+Set ``CONFIG_BOARD_FRDM_IMX95_SPSDK=y`` when building an application for
+``west flash``. ``west flash --context`` then lists the ``spsdk`` runner.
 
 For interactive UART testing, substitute ``samples/subsys/console/echo`` and
 use separate build directories. Select the M7 USB UART channel at 115200 baud
@@ -128,8 +130,8 @@ vectors first, then code, constants and writable data using its standard
 linker and MPU alignment. It does not reproduce the SDK's 4 KiB vector slot,
 text start at ``0x80001000``, data start at ``0x80040000`` or stack top at
 ``0x8005a000``. Those internal boundaries are not an AHAB loading requirement:
-the loader copies the complete raw image at its load address. Inspect every
-new application with the script and confirm its entire footprint is reserved.
+the loader copies the complete raw image at its load address. Inspect each
+application with the script and confirm ownership of the full DDR window.
 
 Both variants retain Zephyr's ``z_arm_reset`` (the reset handler), initial MSP
 from ``z_main_stack + CONFIG_MAIN_STACK_SIZE`` and standard ``z_prep_c``.
@@ -272,13 +274,26 @@ for the connector locations and physical switch positions.
 
 After programming, set SW1-1 to ON and SW1-2 to OFF for eMMC boot and reset the
 board. On J1, look for the Zephyr boot banner and the Hello World message on
-the M7 console.
+the M7 console. The persistent eMMC test used the RPMsg heartbeat image. The
+eMMC boot partition matched the assembled image byte for byte, and the M7
+heartbeat reconnected after Linux booted.
 
 To load the image into RAM for one boot, use ``--bootdevice=spl`` in the same
-command. Check the M7 console on J1 for the Zephyr banner and sample output.
+command. This boot mode was verified with Hello World on both TCM and DDR
+targets. Check the M7 console on J1 for the Zephyr banner and sample output.
 
 Linux coexistence and SD test procedure
 **************************************
+
+On the tested FRDM Linux 6.18.2 eMMC configuration, U-Boot reports its first
+DRAM bank and allocatable LMB memory starting at ``0x90000000``. U-Boot
+relocates to ``0xffeb3000`` and loads the kernel at ``0x90400000``. The active
+Linux device tree's ``/memory@80000000`` node has a ``reg`` property starting
+at ``0x90000000``, which Linux also reports in ``/proc/iomem``. The RPMsg
+buffers start at ``0x88000000``, OP-TEE at ``0x8c000000``, and the allocated
+CMA pool at ``0xc3000000``. The active AHAB container places the M7 payload
+at ``0x80000000``. The other payloads and reserved regions are outside the
+M7 window of ``0x80000000`` through ``0x80059fff``.
 
 Before deploying, collect current board state using read-only commands:
 
@@ -295,16 +310,12 @@ Before deploying, collect current board state using read-only commands:
    done
    dtc -I fs -O dts /proc/device-tree
 
-The last command prints the active device tree; capture stdout on the host if
-needed. Previous observations of kernel 6.18.2, an OS08A20 DTB and
-``root=/dev/mmcblk0p2`` are not current ownership evidence.
-
-Review the active ``reserved-memory`` nodes, M7 remoteproc node and boot-loader
-load/relocation ranges against the complete image, stacks and BSS. The entire
-DDR window ``[0x80000000, 0x8005a000)`` is only a candidate until excluded from
-Linux allocation and other firmware loads. A Zephyr DTS node cannot reserve
-RAM in Linux. Do not change the board's memory configuration until the active
-SM and Linux views have been independently checked.
+When changing the BSP, boot container or boot configuration, compare the
+active RAM banks, ``reserved-memory`` nodes and firmware loads against the full
+M7 window. Inspect ``bdinfo`` at the U-Boot prompt and use
+``mkimage_imx8 -soc IMX9 -rev B0 -parse flash.bin`` to list AHAB payload
+addresses and sizes on B0. The Zephyr devicetree describes the M7 allocation,
+while the A55 boot chain supplies the Linux memory map.
 
 Keep vrings and IPC buffers, including the SDK references ``0x88000000`` and
 ``0x88010000``, outside application allocations. Reserve matching resource-table

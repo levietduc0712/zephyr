@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: Copyright The Zephyr Project Contributors
+# SPDX-License-Identifier: Apache-2.0
+
+config BOARD_FRDM_IMX95_SPSDK
+	bool "Enable the SPSDK flash runner"
+	depends on BOARD_FRDM_IMX95
+	help
+	  Register the SPSDK runner for west flash. Supply the FRDM BSP
+	  bootloader and the assembled AHAB boot container when flashing.

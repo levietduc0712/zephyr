@@ -142,7 +142,7 @@ def verify(build):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument('build', type=Path, help='West build directory')
     args = parser.parse_args()
     try:
